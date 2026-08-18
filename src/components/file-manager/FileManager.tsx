@@ -4,6 +4,7 @@ import type { FolderItem, AudioFileItem, StorageUsage } from '../../types/storag
 import { FolderTree } from './FolderTree';
 import { FileList } from './FileList';
 import { StorageMeter } from './StorageMeter';
+import { SUPPORTED_UPLOAD_ACCEPT, SUPPORTED_FORMATS_SUMMARY } from '../../audio/audioFormats';
 
 export interface FileManagerProps {
   folders: FolderItem[];
@@ -97,7 +98,8 @@ export const FileManager: React.FC<FileManagerProps> = ({
         ref={fileInputRef}
         onChange={handleFileInputChange}
         multiple
-        accept="audio/*,.zip"
+        accept={SUPPORTED_UPLOAD_ACCEPT}
+        title={`Supported audio formats: ${SUPPORTED_FORMATS_SUMMARY}`}
         style={{ display: 'none' }}
       />
 

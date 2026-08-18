@@ -1,6 +1,7 @@
 import React from 'react';
 import { HardDrive, Archive, UploadCloud } from 'lucide-react';
 import type { StorageUsage } from '../../types/storage';
+import { SUPPORTED_FORMATS_SUMMARY } from '../../audio/audioFormats';
 
 export interface StorageMeterProps {
   usage: StorageUsage | null;
@@ -45,7 +46,7 @@ export const StorageMeter: React.FC<StorageMeterProps> = ({
           className="btn btn-secondary btn-sm"
           style={{ flex: 1, fontSize: 'var(--font-sm)' }}
           onClick={onImportClick}
-          title="Import audio files or .zip project backup"
+          title={`Import audio files (${SUPPORTED_FORMATS_SUMMARY}) or .zip backup`}
         >
           <UploadCloud size={13} /> Import
         </button>

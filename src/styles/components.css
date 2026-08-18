@@ -892,6 +892,9 @@
 .toast-item.success {
   border-color: var(--accent-emerald);
 }
+.toast-item.warning {
+  border-color: var(--accent-amber, #f59e0b);
+}
 .toast-item.error {
   border-color: var(--accent-rose);
 }

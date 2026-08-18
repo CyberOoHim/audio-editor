@@ -43,6 +43,7 @@ import { audioEngine } from './audio/AudioEngine';
 import * as BufferUtils from './audio/BufferUtils';
 import { EffectsChain } from './audio/EffectsChain';
 import { exportAudio, triggerDownload } from './audio/encoders/ExportManager';
+import { isSupportedAudioFile, SUPPORTED_FORMATS_SUMMARY } from './audio/audioFormats';
 
 import { FileManager } from './components/file-manager/FileManager';
 import { WaveformCanvas } from './components/editor/WaveformCanvas';
@@ -159,6 +160,7 @@ export function AudioStudioApp() {
   const [generatorModalOpen, setGeneratorModalOpen] = useState<boolean>(false);
   const [pwaModalOpen, setPwaModalOpen] = useState<boolean>(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isEditorDragOver, setIsEditorDragOver] = useState<boolean>(false);
 
   // PWA Install Prompt Listener
   useEffect(() => {
@@ -773,6 +775,7 @@ export function AudioStudioApp() {
   const handleImportFiles = async (fileList: FileList | File[]) => {
     const tempAudioCtx = audioEngine.getContext();
     let imported = 0;
+    const skippedFiles: string[] = [];
 
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
@@ -780,6 +783,11 @@ export function AudioStudioApp() {
       if (file.name.endsWith('.zip')) {
         const res = await importFromZip(file);
         imported += res.importedCount;
+        continue;
+      }
+
+      if (!isSupportedAudioFile(file)) {
+        skippedFiles.push(file.name);
         continue;
       }
 
@@ -810,6 +818,7 @@ export function AudioStudioApp() {
         imported++;
       } catch (err) {
         console.warn('Failed to decode file:', file.name, err);
+        skippedFiles.push(file.name);
       }
     }
 
@@ -818,7 +827,20 @@ export function AudioStudioApp() {
     const updatedFiles = await getAllAudioFiles();
     setFiles(updatedFiles);
     await refreshStorage();
-    showToast(`Imported ${imported} audio file(s)`, 'success');
+
+    if (imported > 0) {
+      showToast(`Imported ${imported} audio file(s)`, 'success');
+    }
+    if (skippedFiles.length > 0) {
+      if (imported === 0) {
+        showToast(
+          `Unsupported file format: "${skippedFiles[0]}". Please select supported audio files (${SUPPORTED_FORMATS_SUMMARY})`,
+          'error'
+        );
+      } else {
+        showToast(`Skipped ${skippedFiles.length} unsupported or unreadable file(s)`, 'warning');
+      }
+    }
   };
 
   const handleCreateFolder = async (name: string, color?: string) => {
@@ -962,7 +984,28 @@ export function AudioStudioApp() {
         </aside>
 
         {/* Main Waveform Workspace */}
-        <main className="editor-panel">
+        <main
+          className="editor-panel"
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsEditorDragOver(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            setIsEditorDragOver(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsEditorDragOver(false);
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+              handleImportFiles(e.dataTransfer.files);
+            }
+          }}
+          style={{
+            outline: isEditorDragOver ? '2px dashed var(--accent-cyan)' : 'none',
+            outlineOffset: -4
+          }}
+        >
           {/* DSP Editing Tool Palette */}
           <ToolPalette
             hasSelection={Boolean(selection && selection.end > selection.start)}
