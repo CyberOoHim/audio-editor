@@ -62,6 +62,7 @@ import { SilenceModal } from './components/modals/SilenceModal';
 import { FadeModal } from './components/modals/FadeModal';
 import { NormalizeModal } from './components/modals/NormalizeModal';
 import { GeneratorModal } from './components/modals/GeneratorModal';
+import { SetRangeModal } from './components/modals/SetRangeModal';
 import { PwaInstallModal } from './components/modals/PwaInstallModal';
 import { FontSizeAdjuster } from './components/common/FontSizeAdjuster';
 import { ToastProvider, useToast } from './components/common/Toast';
@@ -159,6 +160,7 @@ export function AudioStudioApp() {
   const [fadeModalInitialType, setFadeModalInitialType] = useState<FadeType>('in');
   const [normalizeModalOpen, setNormalizeModalOpen] = useState<boolean>(false);
   const [generatorModalOpen, setGeneratorModalOpen] = useState<boolean>(false);
+  const [rangeModalOpen, setRangeModalOpen] = useState<boolean>(false);
   const [pwaModalOpen, setPwaModalOpen] = useState<boolean>(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isEditorDragOver, setIsEditorDragOver] = useState<boolean>(false);
@@ -310,48 +312,6 @@ export function AudioStudioApp() {
     };
   }, []);
 
-  // Keyboard Shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
-        return;
-      }
-
-      if (e.code === 'Space') {
-        e.preventDefault();
-        if (!currentBuffer) return;
-        if (playState === 'playing') {
-          audioEngine.pause();
-        } else {
-          audioEngine.play(currentTime, selection || undefined);
-        }
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) {
-          handleRedo();
-        } else {
-          handleUndo();
-        }
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        handleRedo();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-        e.preventDefault();
-        handleSelectAll();
-      } else if (e.key === 'Escape') {
-        setSelection(null);
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selection && selection.end > selection.start) {
-          e.preventDefault();
-          handleCut();
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [playState, currentTime, selection, currentBuffer]);
-
   // Playback Controls
   const handlePlay = useCallback(() => {
     if (!currentBuffer) return;
@@ -447,6 +407,107 @@ export function AudioStudioApp() {
     setSelection(null);
     showToast('Cut selected region', 'success');
   }, [currentBuffer, selection, showToast]);
+
+  // Keyboard Shortcuts (Hotkeys)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (!currentBuffer) return;
+        if (playState === 'playing') {
+          audioEngine.pause();
+        } else {
+          audioEngine.play(currentTime, selection || undefined);
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          const vpStart = Math.max(0, scrollLeft / zoom);
+          const vpEnd = Math.min(currentBuffer ? currentBuffer.duration : 0, (scrollLeft + canvasDimensions.width) / zoom);
+          if (vpEnd > vpStart) {
+            setSelection({ start: vpStart, end: vpEnd });
+            showToast(`Selected visible viewport (${vpStart.toFixed(2)}s - ${vpEnd.toFixed(2)}s)`, 'info');
+          }
+        } else {
+          handleSelectAll();
+        }
+      } else if (e.key === 'i' || e.key === 'I' || e.key === '[') {
+        if (currentBuffer) {
+          e.preventDefault();
+          const curTime = currentTime;
+          const trackDur = currentBuffer.duration;
+          if (selection && selection.end > curTime) {
+            setSelection({ start: curTime, end: selection.end });
+          } else {
+            setSelection({ start: curTime, end: Math.min(trackDur, curTime + 1) });
+          }
+          showToast(`In-Point set: ${curTime.toFixed(2)}s`, 'info');
+        }
+      } else if (e.key === 'o' || e.key === 'O' || e.key === ']') {
+        if (currentBuffer) {
+          e.preventDefault();
+          const curTime = currentTime;
+          if (selection && curTime > selection.start) {
+            setSelection({ start: selection.start, end: curTime });
+          } else {
+            setSelection({ start: Math.max(0, curTime - 1), end: curTime });
+          }
+          showToast(`Out-Point set: ${curTime.toFixed(2)}s`, 'info');
+        }
+      } else if (e.shiftKey && e.key === 'Home') {
+        if (currentBuffer) {
+          e.preventDefault();
+          setSelection({ start: 0, end: currentTime });
+          showToast(`Selected from Start to Playhead (0.00s - ${currentTime.toFixed(2)}s)`, 'info');
+        }
+      } else if (e.shiftKey && e.key === 'End') {
+        if (currentBuffer) {
+          e.preventDefault();
+          setSelection({ start: currentTime, end: currentBuffer.duration });
+          showToast(`Selected from Playhead to End (${currentTime.toFixed(2)}s - ${currentBuffer.duration.toFixed(2)}s)`, 'info');
+        }
+      } else if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        if (currentBuffer) {
+          e.preventDefault();
+          const step = e.altKey ? 0.1 : 0.5;
+          const dir = e.key === 'ArrowRight' ? 1 : -1;
+          const trackDur = currentBuffer.duration;
+          if (selection && selection.end > selection.start) {
+            const newEnd = Math.max(selection.start + 0.05, Math.min(trackDur, selection.end + dir * step));
+            setSelection({ start: selection.start, end: newEnd });
+          } else {
+            const start = dir > 0 ? currentTime : Math.max(0, currentTime - step);
+            const end = dir > 0 ? Math.min(trackDur, currentTime + step) : currentTime;
+            setSelection({ start, end });
+          }
+        }
+      } else if (e.key === 'Escape') {
+        setSelection(null);
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selection && selection.end > selection.start) {
+          e.preventDefault();
+          handleCut();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [playState, currentTime, selection, currentBuffer, scrollLeft, zoom, canvasDimensions.width, showToast, handleSelectAll, handleCut, handleUndo, handleRedo]);
 
   const handleToggleTimeFormat = useCallback(() => {
     setTimeFormat((prev) => {
@@ -925,6 +986,28 @@ export function AudioStudioApp() {
     handleOpenFadeModal('in');
   }, [handleOpenFadeModal]);
 
+  const handleOpenRangeModal = useCallback(() => setRangeModalOpen(true), []);
+  const handleCloseRangeModal = useCallback(() => setRangeModalOpen(false), []);
+
+  const handleApplyRangeSelection = useCallback((newSelection: AudioSelection | null, centerViewport: boolean = true) => {
+    setSelection(newSelection);
+    if (newSelection && centerViewport && currentBuffer) {
+      const selDuration = newSelection.end - newSelection.start;
+      const selCenter = (newSelection.start + newSelection.end) / 2;
+      if (canvasDimensions.width > 0) {
+        const desiredZoom = Math.max(10, Math.min(zoom, (canvasDimensions.width * 0.8) / Math.max(0.1, selDuration)));
+        setZoom(desiredZoom);
+        const targetScroll = Math.max(0, selCenter * desiredZoom - canvasDimensions.width / 2);
+        setScrollLeft(targetScroll);
+      }
+    }
+    if (newSelection) {
+      showToast(`Selected ${(newSelection.end - newSelection.start).toFixed(2)}s (${newSelection.start.toFixed(2)}s - ${newSelection.end.toFixed(2)}s)`, 'info');
+    } else {
+      showToast('Selection cleared', 'info');
+    }
+  }, [currentBuffer, zoom, canvasDimensions.width, showToast]);
+
   const handleOpenSilenceModal = useCallback(() => setSilenceModalOpen(true), []);
   const handleCloseSilenceModal = useCallback(() => setSilenceModalOpen(false), []);
 
@@ -1138,8 +1221,11 @@ export function AudioStudioApp() {
             currentTime={currentTime}
             viewportStart={viewportStart}
             viewportEnd={viewportEnd}
+            selection={selection}
             width={canvasDimensions.width}
             onSeekViewport={handleSeekViewport}
+            onSeekPlayhead={handleSeek}
+            onSelectRegion={setSelection}
           />
 
           {/* Time Ruler */}
@@ -1148,6 +1234,10 @@ export function AudioStudioApp() {
             zoom={zoom}
             scrollLeft={scrollLeft}
             width={canvasDimensions.width}
+            selection={selection}
+            currentTime={currentTime}
+            onSeek={handleSeek}
+            onSelectRegion={setSelection}
           />
 
           {/* Main 60fps Waveform Canvas */}
@@ -1189,6 +1279,7 @@ export function AudioStudioApp() {
             onTrim={handleTrim}
             onCut={handleCut}
             onFadeSelection={handleFadeSelection}
+            onOpenSetRangeModal={handleOpenRangeModal}
           />
 
           {/* Bottom Studio Transport Bar */}
@@ -1248,6 +1339,17 @@ export function AudioStudioApp() {
         selection={selection}
         currentTime={currentTime}
         onGenerateSignal={handleGenerateSignal}
+      />
+
+      <SetRangeModal
+        isOpen={rangeModalOpen}
+        onClose={handleCloseRangeModal}
+        duration={duration}
+        currentTime={currentTime}
+        viewportStart={viewportStart}
+        viewportEnd={viewportEnd}
+        selection={selection}
+        onApplySelection={handleApplyRangeSelection}
       />
 
       <EffectsModal

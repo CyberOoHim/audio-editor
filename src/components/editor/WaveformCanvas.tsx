@@ -294,6 +294,90 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
     ctx.restore();
   }, [currentTime, selection, zoom, scrollLeft, width, height]);
 
+  // Auto-scroll animation frame ref & state
+  const autoScrollAnimRef = useRef<number | null>(null);
+  const scrollSpeedRef = useRef<number>(0);
+  const latestPointerXRef = useRef<number>(0);
+  const currentScrollLeftRef = useRef<number>(scrollLeft);
+  const currentSelectionRef = useRef<AudioSelection | null>(selection);
+  const dragModeRef = useRef<DragMode>('none');
+  const [hoverCursor, setHoverCursor] = useState<string>('default');
+
+  useEffect(() => {
+    currentScrollLeftRef.current = scrollLeft;
+  }, [scrollLeft]);
+
+  useEffect(() => {
+    currentSelectionRef.current = selection;
+  }, [selection]);
+
+  useEffect(() => {
+    dragModeRef.current = dragMode;
+  }, [dragMode]);
+
+  const stopAutoScroll = () => {
+    if (autoScrollAnimRef.current !== null) {
+      cancelAnimationFrame(autoScrollAnimRef.current);
+      autoScrollAnimRef.current = null;
+    }
+    scrollSpeedRef.current = 0;
+  };
+
+  const startAutoScroll = (speed: number) => {
+    scrollSpeedRef.current = speed;
+    if (autoScrollAnimRef.current === null) {
+      const loop = () => {
+        const curScroll = currentScrollLeftRef.current;
+        const maxScroll = Math.max(0, duration * zoom - width);
+        const spd = scrollSpeedRef.current;
+        const newScroll = Math.max(0, Math.min(maxScroll, curScroll + spd));
+
+        if (newScroll !== curScroll) {
+          currentScrollLeftRef.current = newScroll;
+          onScrollChange(newScroll);
+
+          // Update selection or scrub under the pointer
+          const x = latestPointerXRef.current;
+          const currentTimeAtPointer = Math.max(0, Math.min(duration, (newScroll + x) / zoom));
+          const curDragMode = dragModeRef.current;
+
+          if (curDragMode === 'create-selection') {
+            const startTime = Math.min(dragStartRef.current.time, currentTimeAtPointer);
+            const endTime = Math.max(dragStartRef.current.time, currentTimeAtPointer);
+            if (endTime - startTime > 0.005) {
+              onSelectRegion({ start: startTime, end: endTime });
+            }
+          } else if (curDragMode === 'drag-handle-start') {
+            const curSel = currentSelectionRef.current;
+            if (curSel) {
+              const newStart = Math.min(curSel.end - 0.005, Math.max(0, currentTimeAtPointer));
+              onSelectRegion({ start: newStart, end: curSel.end });
+            }
+          } else if (curDragMode === 'drag-handle-end') {
+            const curSel = currentSelectionRef.current;
+            if (curSel) {
+              const newEnd = Math.max(curSel.start + 0.005, Math.min(duration, currentTimeAtPointer));
+              onSelectRegion({ start: curSel.start, end: newEnd });
+            }
+          } else if (curDragMode === 'scrub-playhead') {
+            onSeek(currentTimeAtPointer);
+          }
+        }
+
+        if (scrollSpeedRef.current !== 0) {
+          autoScrollAnimRef.current = requestAnimationFrame(loop);
+        } else {
+          autoScrollAnimRef.current = null;
+        }
+      };
+      autoScrollAnimRef.current = requestAnimationFrame(loop);
+    }
+  };
+
+  useEffect(() => {
+    return () => stopAutoScroll();
+  }, []);
+
   const handlePointerDown = (e: React.PointerEvent) => {
     if (!buffer) return;
     const rect = containerRef.current?.getBoundingClientRect();
@@ -304,8 +388,26 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
 
     const HANDLE_HIT_PX = 20; // larger hit area for touch fingers & mouse
     let activeDragMode: DragMode = mode === 'pan' ? 'pan' : 'create-selection';
+    let anchorTime = clickTime;
 
-    if (selection && selection.end > selection.start) {
+    if (e.shiftKey) {
+      // Shift + Click / Shift + Drag to extend or create selection!
+      if (selection && selection.end > selection.start) {
+        const distToStart = Math.abs(clickTime - selection.start);
+        const distToEnd = Math.abs(clickTime - selection.end);
+        if (distToStart < distToEnd) {
+          anchorTime = selection.end;
+        } else {
+          anchorTime = selection.start;
+        }
+      } else {
+        anchorTime = currentTime;
+      }
+      const newStart = Math.min(anchorTime, clickTime);
+      const newEnd = Math.max(anchorTime, clickTime);
+      onSelectRegion({ start: newStart, end: newEnd });
+      activeDragMode = 'create-selection';
+    } else if (selection && selection.end > selection.start) {
       const startX = selection.start * zoom - scrollLeft;
       const endX = selection.end * zoom - scrollLeft;
 
@@ -319,15 +421,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
     // Middle click or Space/Alt creates pan directly
     if (e.button === 1 || e.altKey) {
       activeDragMode = 'pan';
-    } else if (e.shiftKey) {
-      activeDragMode = 'scrub-playhead';
-      onSeek(clickTime);
     }
 
     setDragMode(activeDragMode);
+    latestPointerXRef.current = x;
     dragStartRef.current = {
       x,
-      time: clickTime,
+      time: anchorTime,
       startSelection: selection ? { ...selection } : null,
       scrollLeft
     };
@@ -336,12 +436,46 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (dragMode === 'none' || !buffer) return;
     const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    if (!rect || !buffer) return;
 
     const x = e.clientX - rect.left;
+    latestPointerXRef.current = x;
+
+    // Hover cursor feedback when not dragging
+    if (dragMode === 'none') {
+      if (selection && selection.end > selection.start) {
+        const startX = selection.start * zoom - scrollLeft;
+        const endX = selection.end * zoom - scrollLeft;
+        if (Math.abs(x - startX) <= 15 || Math.abs(x - endX) <= 15) {
+          setHoverCursor('col-resize');
+          return;
+        }
+      }
+      setHoverCursor(mode === 'pan' ? 'grab' : 'crosshair');
+      return;
+    }
+
     const currentTimeAtPointer = Math.max(0, Math.min(duration, (scrollLeft + x) / zoom));
+
+    // Handle Edge Auto-scrolling when dragging selection or handles
+    if (['create-selection', 'drag-handle-start', 'drag-handle-end', 'scrub-playhead'].includes(dragMode)) {
+      const EDGE_ZONE = 45;
+      const MAX_SPEED = 22;
+      const MIN_SPEED = 3;
+
+      if (x < EDGE_ZONE) {
+        const dist = Math.max(1, EDGE_ZONE - x);
+        const spd = -Math.min(MAX_SPEED, MIN_SPEED + dist * 0.4);
+        startAutoScroll(spd);
+      } else if (x > width - EDGE_ZONE) {
+        const dist = Math.max(1, x - (width - EDGE_ZONE));
+        const spd = Math.min(MAX_SPEED, MIN_SPEED + dist * 0.4);
+        startAutoScroll(spd);
+      } else {
+        stopAutoScroll();
+      }
+    }
 
     if (dragMode === 'pan') {
       const deltaX = x - dragStartRef.current.x;
@@ -370,12 +504,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+    stopAutoScroll();
     const rect = containerRef.current?.getBoundingClientRect();
     if (rect) {
       const x = e.clientX - rect.left;
       const clickTime = Math.max(0, Math.min(duration, (scrollLeft + x) / zoom));
-      // If moved less than 5 pixels, treat as single tap / click to position playhead
-      if (Math.abs(x - dragStartRef.current.x) < 5) {
+      // If moved less than 5 pixels and not Shift-clicking, treat as single tap / click to position playhead
+      if (Math.abs(x - dragStartRef.current.x) < 5 && !e.shiftKey && dragMode === 'create-selection') {
         onSeek(clickTime);
       }
     }
@@ -463,7 +598,15 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       style={{
-        cursor: !buffer ? 'default' : dragMode === 'pan' ? 'grabbing' : mode === 'pan' ? 'grab' : 'crosshair',
+        cursor: !buffer
+          ? 'default'
+          : dragMode === 'pan'
+          ? 'grabbing'
+          : dragMode === 'drag-handle-start' || dragMode === 'drag-handle-end'
+          ? 'col-resize'
+          : dragMode === 'create-selection'
+          ? 'crosshair'
+          : hoverCursor,
         position: 'relative'
       }}
     >

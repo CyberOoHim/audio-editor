@@ -1,5 +1,5 @@
 import React from 'react';
-import { Scissors, Crop, CheckSquare, XSquare, Repeat, TrendingUp } from 'lucide-react';
+import { Scissors, Crop, CheckSquare, XSquare, Repeat, TrendingUp, SlidersHorizontal } from 'lucide-react';
 import type { AudioSelection, TimeFormat } from '../../types/audio';
 
 export interface SelectionInfoProps {
@@ -15,6 +15,7 @@ export interface SelectionInfoProps {
   onTrim: () => void;
   onCut: () => void;
   onFadeSelection?: () => void;
+  onOpenSetRangeModal?: () => void;
 }
 
 export const SelectionInfo: React.FC<SelectionInfoProps> = React.memo(({
@@ -28,7 +29,8 @@ export const SelectionInfo: React.FC<SelectionInfoProps> = React.memo(({
   onToggleLoop,
   onTrim,
   onCut,
-  onFadeSelection
+  onFadeSelection,
+  onOpenSetRangeModal
 }) => {
   const formatTime = (sec: number): string => {
     if (timeFormat === 'seconds') {
@@ -48,14 +50,14 @@ export const SelectionInfo: React.FC<SelectionInfoProps> = React.memo(({
 
   return (
     <div className="selection-info-bar">
-      {/* Time stats with format switcher on click */}
-      <div
-        style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, cursor: 'pointer' }}
-        onClick={onToggleTimeFormat}
-        title="Click to toggle time format (Timecode / Seconds / Samples)"
-      >
+      {/* Time stats with click-to-edit range */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
         {hasSelection ? (
-          <>
+          <div
+            style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: onOpenSetRangeModal ? 'pointer' : 'default' }}
+            onClick={onOpenSetRangeModal}
+            title="Click to manually edit or set exact selection range"
+          >
             <div>
               <span style={{ color: 'var(--text-muted)' }}>Start: </span>
               <span className="mono" style={{ color: 'var(--accent-cyan)' }}>{formatTime(selection.start)}</span>
@@ -68,19 +70,42 @@ export const SelectionInfo: React.FC<SelectionInfoProps> = React.memo(({
               <span style={{ color: 'var(--text-muted)' }}>Len: </span>
               <span className="mono" style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>{formatTime(selLength)}</span>
             </div>
-            <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)', background: 'var(--bg-input)', padding: '1px 5px', borderRadius: 3 }}>
-              {timeFormat.toUpperCase()}
-            </span>
-          </>
+          </div>
         ) : (
-          <div style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>
-            Tap or drag to select • Click time display to toggle format ({timeFormat.toUpperCase()})
+          <div
+            style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)', cursor: onOpenSetRangeModal ? 'pointer' : 'default' }}
+            onClick={onOpenSetRangeModal}
+            title="Click to set exact audio range"
+          >
+            Drag to select • Click timecodes to edit range
           </div>
         )}
+
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs"
+          onClick={onToggleTimeFormat}
+          title="Click to toggle time format (Timecode / Seconds / Samples)"
+          style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)', background: 'var(--bg-input)', padding: '1px 5px', borderRadius: 3, border: 'none' }}
+        >
+          {timeFormat.toUpperCase()}
+        </button>
       </div>
 
       {/* Quick Selection Actions */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+        {onOpenSetRangeModal && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={onOpenSetRangeModal}
+            title="Set exact start/end timestamps or choose presets (Start to Playhead, Playhead to End, Viewport)"
+          >
+            <SlidersHorizontal size={12} color="var(--accent-cyan)" />
+            <span className="btn-text-desktop">Range...</span>
+          </button>
+        )}
+
         {hasSelection && (
           <>
             {onFadeSelection && (
@@ -119,7 +144,7 @@ export const SelectionInfo: React.FC<SelectionInfoProps> = React.memo(({
         <button
           className="btn btn-ghost btn-sm"
           onClick={onSelectAll}
-          title="Select entire audio track"
+          title="Select entire audio track (Ctrl+A)"
         >
           <CheckSquare size={12} /> <span className="btn-text-desktop">All</span>
         </button>
@@ -140,4 +165,5 @@ export const SelectionInfo: React.FC<SelectionInfoProps> = React.memo(({
   );
 });
 SelectionInfo.displayName = 'SelectionInfo';
+
 

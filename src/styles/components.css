@@ -570,6 +570,48 @@
   box-shadow: 0 0 8px var(--accent-cyan-glow);
 }
 
+/* MiniMap Mode Pill */
+.minimap-mode-dock {
+  position: absolute;
+  top: 5px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  background: rgba(11, 15, 23, 0.85);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-full);
+  padding: 2px;
+  gap: 2px;
+  z-index: 10;
+  box-shadow: var(--shadow-sm);
+}
+
+.minimap-mode-btn {
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  font-size: calc(9.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+}
+
+.minimap-mode-btn.active {
+  background-color: var(--accent-cyan);
+  color: #040810;
+  box-shadow: 0 0 6px var(--accent-cyan-glow);
+}
+
+.minimap-mode-btn:hover:not(.active) {
+  color: var(--text-primary);
+}
+
 /* Transport Bar */
 .transport-bar {
   min-height: var(--transport-height);
