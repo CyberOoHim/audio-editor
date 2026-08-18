@@ -1,5 +1,4 @@
-import { encodeWav } from './WavEncoder';
-import { encodeMp3 } from './Mp3Encoder';
+import { encodeViaMediaRecorder } from './MediaRecorderHelper';
 
 export interface AacEncoderOptions {
   bitrate?: 128 | 192 | 256 | 320;
@@ -9,39 +8,19 @@ export interface AacEncoderOptions {
 }
 
 /**
- * Encodes an AudioBuffer into AAC (.aac / ADTS stream container)
+ * Encodes an AudioBuffer into AAC / MP4 container using native MediaRecorder
  */
 export async function encodeAac(
   buffer: AudioBuffer,
   options: AacEncoderOptions = {}
 ): Promise<Blob> {
-  const targetChannels = options.channels || (buffer.numberOfChannels >= 2 ? 2 : 1);
-  const targetSampleRate = options.sampleRate || buffer.sampleRate;
-  const bitrate = options.bitrate || 192;
-
-  if (options.onProgress) options.onProgress(0.2);
-
-  // Encode with high-fidelity container
-  try {
-    // Generate audio data stream
-    const audioBlob = await encodeMp3(buffer, {
-      bitrate,
-      channels: targetChannels,
-      sampleRate: targetSampleRate,
-      onProgress: (p) => {
-        if (options.onProgress) options.onProgress(0.2 + p * 0.7);
-      }
-    });
-
-    if (options.onProgress) options.onProgress(1.0);
-    return new Blob([audioBlob], { type: 'audio/aac' });
-  } catch {
-    const wavBlob = await encodeWav(buffer, {
-      bitDepth: 16,
-      channels: targetChannels,
-      sampleRate: targetSampleRate
-    });
-    if (options.onProgress) options.onProgress(1.0);
-    return new Blob([wavBlob], { type: 'audio/aac' });
-  }
+  return await encodeViaMediaRecorder(
+    buffer,
+    ['audio/aac', 'audio/mp4', 'audio/x-m4a', 'audio/webm;codecs=opus'],
+    {
+      bitrate: options.bitrate || 192,
+      sampleRate: options.sampleRate,
+      onProgress: options.onProgress
+    }
+  );
 }

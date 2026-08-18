@@ -192,8 +192,9 @@ export class AudioEngine {
       }
     }
 
+    const currentSource = this.sourceNode;
     this.sourceNode.onended = () => {
-      if (this.playState === 'playing' && !this.isLooping) {
+      if (this.sourceNode === currentSource && this.playState === 'playing' && !this.isLooping) {
         this.stop();
       }
     };
@@ -239,6 +240,11 @@ export class AudioEngine {
   }
 
   public setPlaybackRate(rate: number): void {
+    if (this.playState === 'playing' && this.ctx) {
+      // Snapshot the current position using the old rate before updating
+      this.startOffset = this.getCurrentTime();
+      this.startTime = this.ctx.currentTime;
+    }
     this.playbackRate = Math.max(0.25, Math.min(4.0, rate));
     if (this.sourceNode && this.playState === 'playing') {
       this.sourceNode.playbackRate.setValueAtTime(this.playbackRate, this.getContext().currentTime);

@@ -318,8 +318,10 @@ export function replaceBufferRegion(
   endSec: number
 ): AudioBuffer {
   const sampleRate = source.sampleRate;
-  const startSample = Math.max(0, Math.floor(startSec * sampleRate));
-  const endSample = Math.min(source.length, Math.floor(endSec * sampleRate));
+  const minSec = Math.min(startSec, endSec);
+  const maxSec = Math.max(startSec, endSec);
+  const startSample = Math.max(0, Math.floor(minSec * sampleRate));
+  const endSample = Math.min(source.length, Math.floor(maxSec * sampleRate));
   const channels = Math.max(source.numberOfChannels, replaceBuf.numberOfChannels);
   const newLength = source.length - (endSample - startSample) + replaceBuf.length;
 

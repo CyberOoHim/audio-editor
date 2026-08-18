@@ -47,6 +47,13 @@ export const RecordModal: React.FC<RecordModalProps> = ({
       setDuration(0);
       setRecordedBuffer(null);
     }
+
+    return () => {
+      if (recorderRef.current) {
+        recorderRef.current.cancel();
+        recorderRef.current = null;
+      }
+    };
   }, [isOpen]);
 
   const handleStartRecord = async () => {

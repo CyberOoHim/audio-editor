@@ -18,7 +18,7 @@ export async function encodeWav(
   if (targetSampleRate !== buffer.sampleRate || targetChannels !== buffer.numberOfChannels) {
     const offlineCtx = new OfflineAudioContext(
       targetChannels,
-      Math.ceil(buffer.duration * targetSampleRate),
+      Math.max(1, Math.ceil(buffer.duration * targetSampleRate)),
       targetSampleRate
     );
     const sourceNode = offlineCtx.createBufferSource();

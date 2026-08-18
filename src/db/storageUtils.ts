@@ -160,35 +160,41 @@ export async function importFromZip(zipFile: File | Blob): Promise<{ importedCou
 
   const tempAudioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
 
-  for (const entry of entries) {
-    try {
-      const blob = await entry.zipObject.async('blob');
-      const arrayBuffer = await blob.arrayBuffer();
-      const decodedBuffer = await tempAudioCtx.decodeAudioData(arrayBuffer.slice(0));
-      
-      const fileNameWithExt = entry.name.split('/').pop() || 'Imported Audio';
-      const nameParts = fileNameWithExt.split('.');
-      const format = nameParts.length > 1 ? nameParts.pop()!.toLowerCase() : 'wav';
-      const name = nameParts.join('.');
-      
-      const peaks = generateWaveformPeaks(decodedBuffer, 64);
-      
-      await saveAudioFile({
-        name,
-        folderId: null,
-        duration: decodedBuffer.duration,
-        sampleRate: decodedBuffer.sampleRate,
-        numberOfChannels: decodedBuffer.numberOfChannels,
-        format,
-        size: blob.size,
-        blob,
-        waveformPeaks: peaks,
-        tags: ['imported'],
-        favorite: false
-      });
-      importedCount++;
-    } catch (err) {
-      console.warn('Could not decode file from zip:', entry.name, err);
+  try {
+    for (const entry of entries) {
+      try {
+        const blob = await entry.zipObject.async('blob');
+        const arrayBuffer = await blob.arrayBuffer();
+        const decodedBuffer = await tempAudioCtx.decodeAudioData(arrayBuffer.slice(0));
+        
+        const fileNameWithExt = entry.name.split('/').pop() || 'Imported Audio';
+        const nameParts = fileNameWithExt.split('.');
+        const format = nameParts.length > 1 ? nameParts.pop()!.toLowerCase() : 'wav';
+        const name = nameParts.join('.');
+        
+        const peaks = generateWaveformPeaks(decodedBuffer, 64);
+        
+        await saveAudioFile({
+          name,
+          folderId: null,
+          duration: decodedBuffer.duration,
+          sampleRate: decodedBuffer.sampleRate,
+          numberOfChannels: decodedBuffer.numberOfChannels,
+          format,
+          size: blob.size,
+          blob,
+          waveformPeaks: peaks,
+          tags: ['imported'],
+          favorite: false
+        });
+        importedCount++;
+      } catch (err) {
+        console.warn('Could not decode file from zip:', entry.name, err);
+      }
+    }
+  } finally {
+    if (tempAudioCtx.state !== 'closed') {
+      await tempAudioCtx.close().catch(() => {});
     }
   }
 
@@ -199,8 +205,8 @@ export async function importFromZip(zipFile: File | Blob): Promise<{ importedCou
 export async function createDemoAudioFile(): Promise<AudioFileItem> {
   const sampleRate = 44100;
   const duration = 4.0; // 4 seconds
-  const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)({ sampleRate });
-  const buffer = audioCtx.createBuffer(2, sampleRate * duration, sampleRate);
+  const offlineCtx = new OfflineAudioContext(2, Math.max(1, Math.floor(sampleRate * duration)), sampleRate);
+  const buffer = offlineCtx.createBuffer(2, Math.floor(sampleRate * duration), sampleRate);
   
   const left = buffer.getChannelData(0);
   const right = buffer.getChannelData(1);

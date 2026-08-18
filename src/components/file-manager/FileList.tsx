@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Play, Pause, Trash2, Download, ExternalLink, Music, Clock } from 'lucide-react';
 import type { AudioFileItem } from '../../types/storage';
 import { formatBytes } from '../../db/storageUtils';
@@ -18,6 +18,19 @@ export const FileList: React.FC<FileListProps> = ({
 }) => {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
+  const activeUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (audioEl) {
+        audioEl.pause();
+      }
+      if (activeUrlRef.current) {
+        URL.revokeObjectURL(activeUrlRef.current);
+        activeUrlRef.current = null;
+      }
+    };
+  }, [audioEl]);
 
   const formatDuration = (sec: number): string => {
     const m = Math.floor(sec / 60);
@@ -30,20 +43,34 @@ export const FileList: React.FC<FileListProps> = ({
 
     if (playingId === file.id && audioEl) {
       audioEl.pause();
+      if (activeUrlRef.current) {
+        URL.revokeObjectURL(activeUrlRef.current);
+        activeUrlRef.current = null;
+      }
       setPlayingId(null);
+      setAudioEl(null);
       return;
     }
 
     if (audioEl) {
       audioEl.pause();
     }
+    if (activeUrlRef.current) {
+      URL.revokeObjectURL(activeUrlRef.current);
+      activeUrlRef.current = null;
+    }
 
     const url = URL.createObjectURL(file.blob);
+    activeUrlRef.current = url;
     const audio = new Audio(url);
     audio.play().catch(() => {});
     audio.onended = () => {
       setPlayingId(null);
-      URL.revokeObjectURL(url);
+      setAudioEl(null);
+      if (activeUrlRef.current === url) {
+        URL.revokeObjectURL(url);
+        activeUrlRef.current = null;
+      }
     };
 
     setAudioEl(audio);

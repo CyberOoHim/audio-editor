@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Download, Radio, Loader2 } from 'lucide-react';
 import { Modal } from '../common/Modal';
+import { useToast } from '../common/Toast';
 import type { ExportFormat, ExportSettings, AudioSelection } from '../../types/audio';
 
 export interface ExportModalProps {
@@ -18,6 +19,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   currentFileName,
   onExport
 }) => {
+  const { showToast } = useToast();
   const hasSelection = selection && selection.end > selection.start;
 
   const [format, setFormat] = useState<ExportFormat>('wav');
@@ -62,8 +64,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     try {
       await onExport(settings, destination);
       onClose();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      showToast(err?.message || 'Export failed for the selected format.', 'error');
     } finally {
       setIsExporting(false);
     }

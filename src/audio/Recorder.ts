@@ -33,61 +33,75 @@ export class StudioRecorder {
     this.rightChannelData = [];
     this.recordedSamples = 0;
 
-    const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    this.audioCtx = new AudioCtxClass({ latencyHint: 'interactive' });
-    if (this.audioCtx.state === 'suspended') {
-      await this.audioCtx.resume();
-    }
-    this.sampleRate = this.audioCtx.sampleRate;
-
-    // High quality studio constraints
-    this.mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-        channelCount: 2,
-        sampleRate: this.sampleRate
+    let stream: MediaStream | null = null;
+    try {
+      const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      this.audioCtx = new AudioCtxClass({ latencyHint: 'interactive' });
+      if (this.audioCtx.state === 'suspended') {
+        await this.audioCtx.resume();
       }
-    });
+      this.sampleRate = this.audioCtx.sampleRate;
 
-    this.sourceNode = this.audioCtx.createMediaStreamSource(this.mediaStream);
-    
-    // Analyser node for live visualizer
-    this.analyserNode = this.audioCtx.createAnalyser();
-    this.analyserNode.fftSize = 512;
-    this.analyserNode.smoothingTimeConstant = 0.7;
-    this.sourceNode.connect(this.analyserNode);
+      // High quality studio constraints
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          channelCount: 2,
+          sampleRate: this.sampleRate
+        }
+      });
+      this.mediaStream = stream;
 
-    // Buffer processor (4096 buffer size)
-    this.processorNode = this.audioCtx.createScriptProcessor(4096, 2, 2);
-    this.processorNode.onaudioprocess = (e) => {
-      if (!this.isRecording || this.isPaused) return;
+      this.sourceNode = this.audioCtx.createMediaStreamSource(this.mediaStream);
+      
+      // Analyser node for live visualizer
+      this.analyserNode = this.audioCtx.createAnalyser();
+      this.analyserNode.fftSize = 512;
+      this.analyserNode.smoothingTimeConstant = 0.7;
+      this.sourceNode.connect(this.analyserNode);
 
-      const inputL = e.inputBuffer.getChannelData(0);
-      const inputR = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : inputL;
+      // Buffer processor (4096 buffer size)
+      this.processorNode = this.audioCtx.createScriptProcessor(4096, 2, 2);
+      this.processorNode.onaudioprocess = (e) => {
+        if (!this.isRecording || this.isPaused) return;
 
-      // Copy buffer chunks
-      const chunkL = new Float32Array(inputL.length);
-      chunkL.set(inputL);
-      this.leftChannelData.push(chunkL);
+        const inputL = e.inputBuffer.getChannelData(0);
+        const inputR = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : inputL;
 
-      const chunkR = new Float32Array(inputR.length);
-      chunkR.set(inputR);
-      this.rightChannelData.push(chunkR);
+        // Copy buffer chunks
+        const chunkL = new Float32Array(inputL.length);
+        chunkL.set(inputL);
+        this.leftChannelData.push(chunkL);
 
-      this.recordedSamples += inputL.length;
-    };
+        const chunkR = new Float32Array(inputR.length);
+        chunkR.set(inputR);
+        this.rightChannelData.push(chunkR);
 
-    this.sourceNode.connect(this.processorNode);
-    this.processorNode.connect(this.audioCtx.destination);
+        this.recordedSamples += inputL.length;
+      };
 
-    this.isRecording = true;
-    this.isPaused = false;
-    this.startTime = performance.now();
-    this.pausedTimeOffset = 0;
+      this.sourceNode.connect(this.processorNode);
+      this.processorNode.connect(this.audioCtx.destination);
 
-    this.startMetricsLoop();
+      this.isRecording = true;
+      this.isPaused = false;
+      this.startTime = performance.now();
+      this.pausedTimeOffset = 0;
+
+      this.startMetricsLoop();
+    } catch (err) {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        this.mediaStream = null;
+      }
+      if (this.audioCtx && this.audioCtx.state !== 'closed') {
+        this.audioCtx.close().catch(() => {});
+        this.audioCtx = null;
+      }
+      throw err;
+    }
   }
 
   public pause(): void {

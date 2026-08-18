@@ -1,4 +1,4 @@
-import { encodeWav } from './WavEncoder';
+import { encodeViaMediaRecorder } from './MediaRecorderHelper';
 
 export interface FlacEncoderOptions {
   bitDepth?: 16 | 24;
@@ -8,22 +8,18 @@ export interface FlacEncoderOptions {
 }
 
 /**
- * In-browser FLAC / Lossless Audio Packaging
- * Encodes audio into high-definition 24-bit / 16-bit PCM lossless storage
+ * Encodes an AudioBuffer into FLAC stream if supported by browser MediaRecorder
  */
 export async function encodeFlac(
   buffer: AudioBuffer,
   options: FlacEncoderOptions = {}
 ): Promise<Blob> {
-  if (options.onProgress) options.onProgress(0.3);
-
-  const bitDepth = options.bitDepth || 24;
-  const wavBlob = await encodeWav(buffer, {
-    bitDepth,
-    channels: options.channels || (buffer.numberOfChannels >= 2 ? 2 : 1),
-    sampleRate: options.sampleRate || buffer.sampleRate
-  });
-  
-  if (options.onProgress) options.onProgress(1.0);
-  return new Blob([wavBlob], { type: 'audio/flac' });
+  return await encodeViaMediaRecorder(
+    buffer,
+    ['audio/flac', 'audio/x-flac'],
+    {
+      sampleRate: options.sampleRate,
+      onProgress: options.onProgress
+    }
+  );
 }
