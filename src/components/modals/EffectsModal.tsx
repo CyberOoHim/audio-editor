@@ -121,11 +121,11 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
           border: '1px solid var(--border-subtle)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 13 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 'var(--font-base)' }}>
               <Sliders size={14} color="var(--accent-cyan)" />
               3-Band Parametric Equalizer
             </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--font-md)', cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={eq.enabled}
@@ -173,11 +173,11 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
           flexDirection: 'column',
           gap: 12
         }}>
-          <span style={{ fontWeight: 600, fontSize: 13 }}>High-Pass & Low-Pass Filters</span>
+          <span style={{ fontWeight: 600, fontSize: 'var(--font-base)' }}>High-Pass & Low-Pass Filters</span>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--font-md)' }}>
                 <input
                   type="checkbox"
                   checked={filters.highpassEnabled}
@@ -199,7 +199,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--font-md)' }}>
                 <input
                   type="checkbox"
                   checked={filters.lowpassEnabled}
@@ -231,8 +231,8 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
           gap: 12
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontWeight: 600, fontSize: 13 }}>Dynamics Compressor</span>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+            <span style={{ fontWeight: 600, fontSize: 'var(--font-base)' }}>Dynamics Compressor</span>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--font-md)' }}>
               <input
                 type="checkbox"
                 checked={comp.enabled}

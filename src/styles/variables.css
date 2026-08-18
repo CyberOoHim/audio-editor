@@ -28,6 +28,18 @@
   --accent-rose: #f43f5e;
   --accent-rose-dim: rgba(244, 63, 94, 0.15);
   
+  /* UI Font Size Scaling */
+  --ui-font-scale: 1;
+  --font-2xs: calc(9px * var(--ui-font-scale, 1));
+  --font-xs: calc(10px * var(--ui-font-scale, 1));
+  --font-sm: calc(11px * var(--ui-font-scale, 1));
+  --font-md: calc(12px * var(--ui-font-scale, 1));
+  --font-base: calc(13px * var(--ui-font-scale, 1));
+  --font-lg: calc(14px * var(--ui-font-scale, 1));
+  --font-xl: calc(15px * var(--ui-font-scale, 1));
+  --font-2xl: calc(18px * var(--ui-font-scale, 1));
+  --font-3xl: calc(22px * var(--ui-font-scale, 1));
+
   /* Text & Typography */
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;

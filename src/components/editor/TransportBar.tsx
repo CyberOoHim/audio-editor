@@ -165,7 +165,7 @@ export const TransportBar: React.FC<TransportBarProps> = ({
               style={{
                 height: 26,
                 padding: '0 8px',
-                fontSize: 11,
+                fontSize: 'var(--font-sm)',
                 fontWeight: 600,
                 color: playbackRate !== 1.0 ? 'var(--accent-cyan)' : 'var(--text-secondary)',
                 border: playbackRate !== 1.0 ? '1px solid var(--accent-cyan)' : undefined
@@ -235,7 +235,7 @@ export const TransportBar: React.FC<TransportBarProps> = ({
                 style={{
                   height: 24,
                   padding: '0 6px',
-                  fontSize: 11,
+                  fontSize: 'var(--font-sm)',
                   color: playbackRate !== 1.0 ? 'var(--accent-cyan)' : 'var(--text-secondary)'
                 }}
                 title="Playback Speed"

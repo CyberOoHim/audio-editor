@@ -51,7 +51,7 @@ export const SilenceModal: React.FC<SilenceModalProps> = ({
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+        <p style={{ fontSize: 'var(--font-base)', color: 'var(--text-secondary)' }}>
           Insert digital zero-amplitude silence into the track.
         </p>
 
@@ -71,9 +71,9 @@ export const SilenceModal: React.FC<SilenceModalProps> = ({
                   if (!isNaN(val) && val > 0) setDuration(Math.min(60, val));
                 }}
                 className="form-input mono"
-                style={{ width: 70, height: 26, padding: '2px 6px', fontSize: 12, textAlign: 'right' }}
+                style={{ width: 70, height: 26, padding: '2px 6px', fontSize: 'var(--font-md)', textAlign: 'right' }}
               />
-              <span className="mono" style={{ color: 'var(--accent-cyan)', fontSize: 12 }}>sec</span>
+              <span className="mono" style={{ color: 'var(--accent-cyan)', fontSize: 'var(--font-md)' }}>sec</span>
             </div>
           </div>
 
@@ -93,7 +93,7 @@ export const SilenceModal: React.FC<SilenceModalProps> = ({
                 key={p}
                 type="button"
                 className={`btn btn-sm ${Math.abs(duration - p) < 0.01 ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ height: 24, padding: '0 8px', fontSize: 11 }}
+                style={{ height: 24, padding: '0 8px', fontSize: 'var(--font-sm)' }}
                 onClick={() => setDuration(p)}
               >
                 {p}s

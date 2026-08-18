@@ -109,8 +109,8 @@ export const GeneratorModal: React.FC<GeneratorModalProps> = ({
                 }}
                 onClick={() => setType(sig.id as SignalType)}
               >
-                <span style={{ fontWeight: 600, fontSize: 11 }}>{sig.label}</span>
-                <span style={{ fontSize: 9, opacity: 0.75 }}>{sig.desc}</span>
+                <span style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>{sig.label}</span>
+                <span style={{ fontSize: 'var(--font-2xs)', opacity: 0.75 }}>{sig.desc}</span>
               </button>
             ))}
           </div>
@@ -133,9 +133,9 @@ export const GeneratorModal: React.FC<GeneratorModalProps> = ({
                     if (!isNaN(val)) setFrequency(Math.max(20, Math.min(20000, val)));
                   }}
                   className="form-input mono"
-                  style={{ width: 75, height: 26, padding: '2px 6px', fontSize: 12, textAlign: 'right' }}
+                  style={{ width: 75, height: 26, padding: '2px 6px', fontSize: 'var(--font-md)', textAlign: 'right' }}
                 />
-                <span className="mono" style={{ color: 'var(--accent-cyan)', fontSize: 12 }}>Hz</span>
+                <span className="mono" style={{ color: 'var(--accent-cyan)', fontSize: 'var(--font-md)' }}>Hz</span>
               </div>
             </div>
 
@@ -155,7 +155,7 @@ export const GeneratorModal: React.FC<GeneratorModalProps> = ({
                   key={p.freq}
                   type="button"
                   className={`btn btn-sm ${frequency === p.freq ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ height: 24, padding: '0 8px', fontSize: 11 }}
+                  style={{ height: 24, padding: '0 8px', fontSize: 'var(--font-sm)' }}
                   onClick={() => setFrequency(p.freq)}
                 >
                   {p.label}
@@ -197,9 +197,9 @@ export const GeneratorModal: React.FC<GeneratorModalProps> = ({
                   if (!isNaN(val) && val > 0) setDuration(Math.min(60, val));
                 }}
                 className="form-input mono"
-                style={{ width: 70, height: 26, padding: '2px 6px', fontSize: 12, textAlign: 'right' }}
+                style={{ width: 70, height: 26, padding: '2px 6px', fontSize: 'var(--font-md)', textAlign: 'right' }}
               />
-              <span className="mono" style={{ color: 'var(--accent-cyan)', fontSize: 12 }}>sec</span>
+              <span className="mono" style={{ color: 'var(--accent-cyan)', fontSize: 'var(--font-md)' }}>sec</span>
             </div>
           </div>
           <Slider

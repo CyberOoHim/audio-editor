@@ -130,7 +130,7 @@ export const FolderTree: React.FC<FolderTreeProps> = ({
                     autoFocus
                     onChange={(e) => setEditingName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleRename(folder.id)}
-                    style={{ flex: 1, padding: '2px 6px', fontSize: 12 }}
+                    style={{ flex: 1, padding: '2px 6px', fontSize: 'var(--font-md)' }}
                   />
                   <button className="btn btn-primary btn-icon-sm" onClick={() => handleRename(folder.id)}>
                     <Check size={12} />

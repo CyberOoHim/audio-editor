@@ -29,12 +29,12 @@ export const PwaInstallModal: React.FC<PwaInstallModalProps> = ({
         </button>
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, fontSize: 13 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, fontSize: 'var(--font-base)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, background: 'var(--bg-surface)', borderRadius: 'var(--radius-md)' }}>
           <Smartphone size={28} color="var(--accent-cyan)" />
           <div>
             <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>100% Offline & Native-Speed</div>
-            <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-md)' }}>
               Install AudioCraft to your home screen for full-screen touch editing without browser bars.
             </div>
           </div>
@@ -72,7 +72,7 @@ export const PwaInstallModal: React.FC<PwaInstallModalProps> = ({
           </div>
         )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--accent-emerald)', fontSize: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--accent-emerald)', fontSize: 'var(--font-md)' }}>
           <CheckCircle size={14} /> Works with touch gestures, pinch-to-zoom, and offline storage.
         </div>
       </div>

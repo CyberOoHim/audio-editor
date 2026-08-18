@@ -60,9 +60,9 @@ export const GainModal: React.FC<GainModalProps> = ({
                   if (!isNaN(val)) setGainDb(Math.max(-60, Math.min(36, val)));
                 }}
                 className="form-input mono"
-                style={{ width: 70, height: 26, padding: '2px 6px', fontSize: 12, textAlign: 'right' }}
+                style={{ width: 70, height: 26, padding: '2px 6px', fontSize: 'var(--font-md)', textAlign: 'right' }}
               />
-              <span className="mono" style={{ color: 'var(--accent-cyan)', fontSize: 12 }}>dB</span>
+              <span className="mono" style={{ color: 'var(--accent-cyan)', fontSize: 'var(--font-md)' }}>dB</span>
             </div>
           </div>
 
@@ -82,7 +82,7 @@ export const GainModal: React.FC<GainModalProps> = ({
                 key={p}
                 type="button"
                 className={`btn btn-sm ${Math.abs(gainDb - p) < 0.1 ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ height: 24, padding: '0 8px', fontSize: 11 }}
+                style={{ height: 24, padding: '0 8px', fontSize: 'var(--font-sm)' }}
                 onClick={() => setGainDb(p)}
               >
                 {p > 0 ? `+${p}` : p} dB
@@ -91,7 +91,7 @@ export const GainModal: React.FC<GainModalProps> = ({
             <button
               type="button"
               className={`btn btn-sm ${gainDb <= -36 ? 'btn-primary' : 'btn-secondary'}`}
-              style={{ height: 24, padding: '0 8px', fontSize: 11 }}
+              style={{ height: 24, padding: '0 8px', fontSize: 'var(--font-sm)' }}
               onClick={() => setGainDb(-36)}
             >
               <VolumeX size={11} /> Mute

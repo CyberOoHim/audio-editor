@@ -68,12 +68,12 @@ export const SelectionInfo: React.FC<SelectionInfoProps> = ({
               <span style={{ color: 'var(--text-muted)' }}>Len: </span>
               <span className="mono" style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>{formatTime(selLength)}</span>
             </div>
-            <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-input)', padding: '1px 5px', borderRadius: 3 }}>
+            <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)', background: 'var(--bg-input)', padding: '1px 5px', borderRadius: 3 }}>
               {timeFormat.toUpperCase()}
             </span>
           </>
         ) : (
-          <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+          <div style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>
             Tap or drag to select • Click time display to toggle format ({timeFormat.toUpperCase()})
           </div>
         )}

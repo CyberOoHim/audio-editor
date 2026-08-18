@@ -132,7 +132,7 @@ export const ToolPalette: React.FC<ToolPaletteProps> = ({
         >
           <TrendingUp size={14} color="var(--accent-emerald)" />
           <span>Fade In</span>
-          <span style={{ fontSize: 10, opacity: 0.7, marginLeft: -2 }}>
+          <span style={{ fontSize: 'var(--font-xs)', opacity: 0.7, marginLeft: -2 }}>
             {hasSelection ? 'Sel' : `${fadeInDuration}s`}
           </span>
         </button>
@@ -149,7 +149,7 @@ export const ToolPalette: React.FC<ToolPaletteProps> = ({
         >
           <TrendingDown size={14} color="var(--accent-amber)" />
           <span>Fade Out</span>
-          <span style={{ fontSize: 10, opacity: 0.7, marginLeft: -2 }}>
+          <span style={{ fontSize: 'var(--font-xs)', opacity: 0.7, marginLeft: -2 }}>
             {hasSelection ? 'Sel' : `${fadeOutDuration}s`}
           </span>
         </button>

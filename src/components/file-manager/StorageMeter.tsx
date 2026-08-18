@@ -43,7 +43,7 @@ export const StorageMeter: React.FC<StorageMeterProps> = ({
       <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
         <button
           className="btn btn-secondary btn-sm"
-          style={{ flex: 1, fontSize: 11 }}
+          style={{ flex: 1, fontSize: 'var(--font-sm)' }}
           onClick={onImportClick}
           title="Import audio files or .zip project backup"
         >
@@ -51,7 +51,7 @@ export const StorageMeter: React.FC<StorageMeterProps> = ({
         </button>
         <button
           className="btn btn-secondary btn-sm"
-          style={{ flex: 1, fontSize: 11 }}
+          style={{ flex: 1, fontSize: 'var(--font-sm)' }}
           onClick={onExportZip}
           title="Export all folders and audio files as a .zip backup"
         >

@@ -53,7 +53,7 @@ export const NormalizeModal: React.FC<NormalizeModalProps> = ({
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+        <p style={{ fontSize: 'var(--font-base)', color: 'var(--text-secondary)' }}>
           Scales audio amplitude so the highest peak precisely reaches the target level without distortion.
         </p>
 
@@ -73,9 +73,9 @@ export const NormalizeModal: React.FC<NormalizeModalProps> = ({
                   if (!isNaN(val)) setTargetDb(Math.min(0, Math.max(-36, val)));
                 }}
                 className="form-input mono"
-                style={{ width: 70, height: 26, padding: '2px 6px', fontSize: 12, textAlign: 'right' }}
+                style={{ width: 70, height: 26, padding: '2px 6px', fontSize: 'var(--font-md)', textAlign: 'right' }}
               />
-              <span className="mono" style={{ color: 'var(--accent-cyan)', fontSize: 12 }}>dBFS</span>
+              <span className="mono" style={{ color: 'var(--accent-cyan)', fontSize: 'var(--font-md)' }}>dBFS</span>
             </div>
           </div>
 
@@ -111,10 +111,10 @@ export const NormalizeModal: React.FC<NormalizeModalProps> = ({
                   onClick={() => setTargetDb(p.val)}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <span className="mono" style={{ fontWeight: 600, fontSize: 12 }}>{p.label}</span>
+                    <span className="mono" style={{ fontWeight: 600, fontSize: 'var(--font-md)' }}>{p.label}</span>
                     {isSelected && <CheckCircle2 size={12} />}
                   </div>
-                  <span style={{ fontSize: 10, opacity: 0.75 }}>{p.desc}</span>
+                  <span style={{ fontSize: 'var(--font-xs)', opacity: 0.75 }}>{p.desc}</span>
                 </button>
               );
             })}

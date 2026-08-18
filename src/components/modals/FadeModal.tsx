@@ -125,7 +125,7 @@ export const FadeModal: React.FC<FadeModalProps> = ({
         alignItems: 'center',
         gap: 6
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 11, color: 'var(--text-muted)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 'var(--font-sm)', color: 'var(--text-muted)' }}>
           <span>Envelope Preview: <strong style={{ color: 'var(--text-primary)' }}>{curve.toUpperCase()}</strong></span>
           <span className="mono" style={{ color: accentColor }}>{duration.toFixed(2)}s duration</span>
         </div>
@@ -154,7 +154,7 @@ export const FadeModal: React.FC<FadeModalProps> = ({
           <circle cx={padding + plotW} cy={fadeType === 'in' ? padding : padding + plotH} r="4" fill={accentColor} />
         </svg>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 10, color: 'var(--text-muted)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>
           <span>{fadeType === 'in' ? '0% (Silence)' : '100% (0dB)'}</span>
           <span>{fadeType === 'in' ? '100% (0dB)' : '0% (Silence)'}</span>
         </div>
@@ -168,30 +168,21 @@ export const FadeModal: React.FC<FadeModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Fade Envelope Settings"
-      maxWidth="480px"
+      title={`Configure Audio ${fadeType === 'in' ? 'Fade In' : 'Fade Out'}`}
+      maxWidth="520px"
       footer={
         <>
           <button className="btn btn-secondary" onClick={onClose}>
             Cancel
           </button>
-          <button
-            className="btn btn-primary"
-            onClick={handleApply}
-            style={{
-              background: fadeType === 'in'
-                ? 'linear-gradient(135deg, #059669, #10b981)'
-                : 'linear-gradient(135deg, #d97706, #f59e0b)'
-            }}
-          >
-            {fadeType === 'in' ? <TrendingUp size={15} /> : <TrendingDown size={15} />}
+          <button className="btn btn-primary" onClick={handleApply}>
             Apply {fadeType === 'in' ? 'Fade In' : 'Fade Out'} ({duration.toFixed(2)}s)
           </button>
         </>
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* Fade Type Switcher */}
+        {/* Fade Type Direction Switcher */}
         <div className="form-group">
           <label className="form-label">Fade Direction</label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -214,28 +205,28 @@ export const FadeModal: React.FC<FadeModalProps> = ({
           </div>
         </div>
 
-        {/* Visual Graph Preview */}
+        {/* Visual Fade Envelope Curve Display */}
         {renderCurvePreview()}
 
-        {/* Duration Control */}
+        {/* Duration Input & Preset Pills */}
         <div className="form-group">
-          <div className="form-label">
-            <span>Fade Duration</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <label className="form-label">Fade Duration</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <input
                 type="number"
-                min="0.05"
-                max="60"
                 step="0.05"
+                min="0.01"
+                max={trackDuration || 60}
                 value={duration}
                 onChange={(e) => {
                   const val = parseFloat(e.target.value);
                   if (!isNaN(val) && val >= 0) setDuration(val);
                 }}
                 className="form-input mono"
-                style={{ width: 70, height: 26, padding: '2px 6px', fontSize: 12, textAlign: 'right' }}
+                style={{ width: 70, height: 26, padding: '2px 6px', fontSize: 'var(--font-md)', textAlign: 'right' }}
               />
-              <span className="mono" style={{ color: 'var(--accent-cyan)', fontSize: 12 }}>sec</span>
+              <span className="mono" style={{ color: 'var(--accent-cyan)', fontSize: 'var(--font-md)' }}>sec</span>
             </div>
           </div>
 
@@ -255,7 +246,7 @@ export const FadeModal: React.FC<FadeModalProps> = ({
                 key={p}
                 type="button"
                 className={`btn btn-sm ${Math.abs(duration - p) < 0.01 ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ height: 24, padding: '0 8px', fontSize: 11 }}
+                style={{ height: 24, padding: '0 8px', fontSize: 'var(--font-sm)' }}
                 onClick={() => setDuration(p)}
               >
                 {p}s
@@ -266,7 +257,7 @@ export const FadeModal: React.FC<FadeModalProps> = ({
               <button
                 type="button"
                 className={`btn btn-sm ${Math.abs(duration - selectionDuration) < 0.01 ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ height: 24, padding: '0 8px', fontSize: 11, color: 'var(--accent-cyan)' }}
+                style={{ height: 24, padding: '0 8px', fontSize: 'var(--font-sm)', color: 'var(--accent-cyan)' }}
                 onClick={() => {
                   setDuration(Math.round(selectionDuration * 100) / 100);
                   setPosition('selection');
@@ -282,7 +273,7 @@ export const FadeModal: React.FC<FadeModalProps> = ({
         <div className="form-group">
           <label className="form-label">
             <span>Mathematical Curve Shape</span>
-            <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Acoustic Profile</span>
+            <span style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>Acoustic Profile</span>
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
             {[
@@ -305,8 +296,8 @@ export const FadeModal: React.FC<FadeModalProps> = ({
                 }}
                 onClick={() => setCurve(item.id as FadeCurve)}
               >
-                <span style={{ fontWeight: 600, fontSize: 12 }}>{item.name}</span>
-                <span style={{ fontSize: 10, opacity: 0.75 }}>{item.desc}</span>
+                <span style={{ fontWeight: 600, fontSize: 'var(--font-md)' }}>{item.name}</span>
+                <span style={{ fontSize: 'var(--font-xs)', opacity: 0.75 }}>{item.desc}</span>
               </button>
             ))}
           </div>

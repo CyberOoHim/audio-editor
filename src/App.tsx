@@ -61,6 +61,7 @@ import { FadeModal } from './components/modals/FadeModal';
 import { NormalizeModal } from './components/modals/NormalizeModal';
 import { GeneratorModal } from './components/modals/GeneratorModal';
 import { PwaInstallModal } from './components/modals/PwaInstallModal';
+import { FontSizeAdjuster } from './components/common/FontSizeAdjuster';
 import { ToastProvider, useToast } from './components/common/Toast';
 
 export function AudioStudioApp() {
@@ -97,6 +98,53 @@ export function AudioStudioApp() {
   const [canvasDimensions, setCanvasDimensions] = useState<{ width: number; height: number }>({ width: 800, height: 260 });
   const [interactionMode, setInteractionMode] = useState<'select' | 'pan'>('select');
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+
+  // Overall UI Text Font Size Scaling State
+  const [fontScale, setFontScale] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('audiocraft_ui_font_scale');
+      if (saved) {
+        const parsed = parseFloat(saved);
+        if (!isNaN(parsed) && parsed >= 0.75 && parsed <= 1.55) {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return 1.0;
+  });
+
+  // Apply UI Font Scale to CSS Root Variable
+  useEffect(() => {
+    document.documentElement.style.setProperty('--ui-font-scale', fontScale.toString());
+    try {
+      localStorage.setItem('audiocraft_ui_font_scale', fontScale.toString());
+    } catch {
+      // ignore
+    }
+  }, [fontScale]);
+
+  const handleDecreaseFont = () => {
+    setFontScale((prev) => {
+      const next = Math.max(0.8, Math.round((prev - 0.1) * 10) / 10);
+      showToast(`UI Font Size: ${Math.round(next * 100)}%`, 'info');
+      return next;
+    });
+  };
+
+  const handleIncreaseFont = () => {
+    setFontScale((prev) => {
+      const next = Math.min(1.5, Math.round((prev + 0.1) * 10) / 10);
+      showToast(`UI Font Size: ${Math.round(next * 100)}%`, 'info');
+      return next;
+    });
+  };
+
+  const handleResetFont = () => {
+    setFontScale(1.0);
+    showToast('UI Font Size: 100% (Default)', 'info');
+  };
 
   // Responsive UI & Modals State
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
@@ -853,6 +901,14 @@ export function AudioStudioApp() {
 
         {/* Header Action Buttons */}
         <div className="header-actions">
+          {/* Overall UI Text Font Size Adjuster (- / +) */}
+          <FontSizeAdjuster
+            fontScale={fontScale}
+            onDecrease={handleDecreaseFont}
+            onIncrease={handleIncreaseFont}
+            onReset={handleResetFont}
+          />
+
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => setPwaModalOpen(true)}

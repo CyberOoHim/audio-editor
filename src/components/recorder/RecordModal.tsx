@@ -119,7 +119,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
         {/* Timer Display */}
         <div style={{
           fontFamily: 'var(--font-mono)',
-          fontSize: 32,
+          fontSize: 'calc(32px * var(--ui-font-scale, 1))',
           fontWeight: 700,
           color: isRecording ? (isPaused ? 'var(--accent-amber)' : 'var(--accent-rose)') : 'var(--text-primary)',
           letterSpacing: '0.05em',
@@ -152,7 +152,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
             <button
               className="btn btn-ghost btn-sm"
               style={{
-                fontSize: 10,
+                fontSize: 'var(--font-xs)',
                 padding: '2px 6px',
                 height: 22,
                 backgroundColor: visMode === 'oscilloscope' ? 'var(--accent-cyan-dim)' : 'rgba(0,0,0,0.4)',
@@ -165,7 +165,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
             <button
               className="btn btn-ghost btn-sm"
               style={{
-                fontSize: 10,
+                fontSize: 'var(--font-xs)',
                 padding: '2px 6px',
                 height: 22,
                 backgroundColor: visMode === 'frequency' ? 'var(--accent-cyan-dim)' : 'rgba(0,0,0,0.4)',

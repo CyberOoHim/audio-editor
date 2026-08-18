@@ -68,8 +68,8 @@ export const FileList: React.FC<FileListProps> = ({
     return (
       <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-muted)' }}>
         <Music size={32} style={{ margin: '0 auto 12px', opacity: 0.4 }} />
-        <p style={{ fontSize: 13, marginBottom: 4 }}>No audio files in this folder</p>
-        <p style={{ fontSize: 11 }}>Drag and drop audio files here or record a sample</p>
+        <p style={{ fontSize: 'var(--font-base)', marginBottom: 4 }}>No audio files in this folder</p>
+        <p style={{ fontSize: 'var(--font-sm)' }}>Drag and drop audio files here or record a sample</p>
       </div>
     );
   }
