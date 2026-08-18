@@ -51,22 +51,24 @@ export const MiniMap: React.FC<MiniMapProps> = React.memo(({
     ctx.fillStyle = '#080a0f';
     ctx.fillRect(0, 0, width, height);
 
-    // Fast overview peak rendering using precomputed decimated peak cache
-    const peaks = getDecimatedPeaks(buffer, 2048);
+    // Fast overview peak rendering using precomputed decimated peak cache in a single batched path
+    const peaks = getDecimatedPeaks(buffer, 8192);
     const mins = peaks.mins[0];
     const maxs = peaks.maxs[0];
     const totalBuckets = peaks.totalBuckets;
     const midY = height / 2;
 
     ctx.fillStyle = '#1e3a5f';
-    for (let x = 0; x < width; x++) {
+    ctx.beginPath();
+    for (let x = 0; x < width; x += 3) {
       const bucketIdx = Math.floor((x / width) * totalBuckets);
       const min = bucketIdx < mins.length ? mins[bucketIdx] : 0;
       const max = bucketIdx < maxs.length ? maxs[bucketIdx] : 0;
 
       const h = Math.max(1, (max - min) * (midY - 2));
-      ctx.fillRect(x, midY - h / 2, 1, h);
+      ctx.rect(x, midY - h / 2, 2, h);
     }
+    ctx.fill();
 
     ctx.restore();
   }, [buffer, duration, width, height]);

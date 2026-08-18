@@ -419,13 +419,13 @@ export interface DecimatedPeaks {
 // WeakMap cache so AudioBuffer peak calculations are done once and automatically garbage collected
 const bufferPeakCache = new WeakMap<AudioBuffer, DecimatedPeaks>();
 
-export function getDecimatedPeaks(buffer: AudioBuffer, numBuckets: number = 4096): DecimatedPeaks {
+export function getDecimatedPeaks(buffer: AudioBuffer, numBuckets: number = 8192): DecimatedPeaks {
   const cached = bufferPeakCache.get(buffer);
   if (cached) return cached;
 
   const length = buffer.length;
   const channels = buffer.numberOfChannels;
-  const bucketSize = Math.max(1, Math.floor(length / numBuckets));
+  const bucketSize = Math.max(64, Math.floor(length / numBuckets));
   const actualBuckets = Math.ceil(length / bucketSize);
 
   const mins: Float32Array[] = [];
@@ -442,7 +442,7 @@ export function getDecimatedPeaks(buffer: AudioBuffer, numBuckets: number = 4096
       let min = 1.0;
       let max = -1.0;
 
-      // Use a stride of 1 or 2 inside bucket for high precision
+      // Use a stride within bucket for rapid single-pass calculation
       const stride = bucketSize > 128 ? Math.max(1, Math.floor(bucketSize / 64)) : 1;
       for (let i = start; i < end; i += stride) {
         const v = channelData[i];

@@ -63,20 +63,23 @@ export const TimeRuler: React.FC<TimeRulerProps> = React.memo(({
     const endTime = Math.min(duration, (scrollLeft + width) / zoom);
 
     ctx.font = '10px "JetBrains Mono", monospace';
-    ctx.fillStyle = '#64748b';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
 
     const firstTick = Math.floor(startTime / subInterval) * subInterval;
+    const labels: Array<{ text: string; x: number }> = [];
+
+    // Batch all tick marks in a single path
+    ctx.fillStyle = '#475569';
+    ctx.beginPath();
     for (let t = firstTick; t <= endTime + subInterval; t += subInterval) {
-      const x = t * zoom - scrollLeft;
+      const x = Math.round(t * zoom - scrollLeft);
       if (x < -10 || x > width + 10) continue;
 
       const isMajor = Math.abs(t % interval) < 0.0001 || Math.abs((t % interval) - interval) < 0.0001;
 
       if (isMajor) {
-        ctx.fillStyle = '#475569';
-        ctx.fillRect(x, height - 8, 1, 8);
+        ctx.rect(x, height - 8, 1, 8);
 
         // Format time label
         const m = Math.floor(t / 60);
@@ -93,12 +96,17 @@ export const TimeRuler: React.FC<TimeRulerProps> = React.memo(({
           label = `${m}:${s < 10 ? '0' : ''}${s}`;
         }
 
-        ctx.fillStyle = '#94a3b8';
-        ctx.fillText(label, x + 3, height / 2 - 2);
+        labels.push({ text: label, x: x + 3 });
       } else {
-        ctx.fillStyle = '#334155';
-        ctx.fillRect(x, height - 4, 1, 4);
+        ctx.rect(x, height - 4, 1, 4);
       }
+    }
+    ctx.fill();
+
+    // Render time labels
+    ctx.fillStyle = '#94a3b8';
+    for (let i = 0; i < labels.length; i++) {
+      ctx.fillText(labels[i].text, labels[i].x, height / 2 - 2);
     }
 
     ctx.restore();

@@ -116,8 +116,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
     const sampleRate = buffer.sampleRate;
     const samplesPerPixel = sampleRate / zoom;
 
-    // Precomputed decimated peak pyramid for instant fast zoomed-out rendering
-    const decimated = getDecimatedPeaks(buffer, 4096);
+    // Precomputed decimated peak pyramid for instant fast rendering without raw sample scans
+    const decimated = getDecimatedPeaks(buffer, 8192);
     const bucketSize = decimated.bucketSize;
     const totalBuckets = decimated.totalBuckets;
 
@@ -147,17 +147,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
       ctx.fillStyle = '#475569';
       ctx.fillText(channels === 1 ? 'MONO' : c === 0 ? 'LEFT' : 'RIGHT', 8, topY + 14);
 
-      // Create Gradient for Waveform
-      const gradient = ctx.createLinearGradient(0, topY, 0, topY + channelHeight);
-      gradient.addColorStop(0, '#00f0ff');
-      gradient.addColorStop(0.5, '#38bdf8');
-      gradient.addColorStop(1, '#00f0ff');
-      ctx.fillStyle = gradient;
-
       if (samplesPerPixel <= 1) {
         // Sample-level rendering (individual connected dots when zoomed in deeply)
-        ctx.strokeStyle = '#00f0ff';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
 
         const startSample = Math.max(0, Math.floor(startTime * sampleRate));
@@ -176,26 +169,32 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
         }
         ctx.stroke();
 
-        // Draw sample points
+        // Draw sample points in a single batched path
         ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
         for (let s = startSample; s < endSample; s++) {
           const sampleTime = s / sampleRate;
           const x = sampleTime * zoom - scrollLeft;
           const y = midY - channelData[s] * (channelHeight / 2 - 4);
-          ctx.beginPath();
-          ctx.arc(x, y, 2.5, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.rect(x - 1.5, y - 1.5, 3, 3);
         }
-      } else if (samplesPerPixel >= bucketSize * 2) {
-        // Ultra-fast decimated peak path when zoomed out: reads from precomputed Float32Array cache
-        for (let x = 0; x < width; x++) {
+        ctx.fill();
+      } else {
+        // Ultra-fast batched peak rendering with 2px column step (1 single draw call per channel)
+        ctx.fillStyle = '#38bdf8';
+        ctx.beginPath();
+
+        const step = 2; // 2px step saves 50% loop cycles and calculations
+        const barWidth = 1.5;
+
+        for (let x = 0; x < width; x += step) {
           const pixelTime = (scrollLeft + x) / zoom;
           if (pixelTime < 0 || pixelTime > duration) continue;
 
           const startSample = pixelTime * sampleRate;
-          const endSample = (pixelTime + 1 / zoom) * sampleRate;
+          const endSample = (pixelTime + step / zoom) * sampleRate;
           const startBucket = Math.floor(startSample / bucketSize);
-          const endBucket = Math.min(totalBuckets, Math.ceil(endSample / bucketSize));
+          const endBucket = Math.max(startBucket + 1, Math.min(totalBuckets, Math.ceil(endSample / bucketSize)));
 
           let min = 1.0;
           let max = -1.0;
@@ -216,43 +215,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
           const yBottom = midY - min * (channelHeight / 2 - 4);
           const barHeight = Math.max(1.5, yBottom - yTop);
 
-          ctx.fillRect(x, yTop, 1, barHeight);
+          ctx.rect(x, yTop, barWidth, barHeight);
         }
-      } else {
-        // Precise min/max peak column rendering with adaptive stride
-        for (let x = 0; x < width; x++) {
-          const pixelTime = (scrollLeft + x) / zoom;
-          if (pixelTime < 0 || pixelTime > duration) continue;
 
-          const startSample = Math.floor(pixelTime * sampleRate);
-          const endSample = Math.min(buffer.length, Math.floor((pixelTime + 1 / zoom) * sampleRate));
-
-          if (startSample >= buffer.length) break;
-
-          let min = 1.0;
-          let max = -1.0;
-
-          // Adaptive stride for max performance and smooth visuals
-          const sampleCount = endSample - startSample;
-          const stride = sampleCount > 64 ? Math.max(1, Math.floor(sampleCount / 32)) : 1;
-
-          for (let s = startSample; s < endSample; s += stride) {
-            const val = channelData[s];
-            if (val < min) min = val;
-            if (val > max) max = val;
-          }
-
-          if (max < min) {
-            min = 0;
-            max = 0;
-          }
-
-          const yTop = midY - max * (channelHeight / 2 - 4);
-          const yBottom = midY - min * (channelHeight / 2 - 4);
-          const barHeight = Math.max(1.5, yBottom - yTop);
-
-          ctx.fillRect(x, yTop, 1, barHeight);
-        }
+        ctx.fill();
       }
     }
 
@@ -309,26 +275,19 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
       ctx.fill();
     }
 
-    // Render Playhead Line & Glowing Cursor
+    // Render Playhead Line
     const playheadX = currentTime * zoom - scrollLeft;
     if (playheadX >= -2 && playheadX <= width + 2) {
-      // Glow
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
-      ctx.fillRect(playheadX - 2, 0, 5, height);
-
       // Center Line
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(playheadX - 1, 0, 2, height);
+      ctx.fillRect(Math.round(playheadX) - 1, 0, 2, height);
 
       // Playhead Top Badge
       ctx.beginPath();
-      ctx.moveTo(playheadX - 6, 0);
-      ctx.lineTo(playheadX + 6, 0);
-      ctx.lineTo(playheadX + 6, 8);
-      ctx.lineTo(playheadX, 14);
-      ctx.lineTo(playheadX - 6, 8);
+      ctx.moveTo(playheadX - 5, 0);
+      ctx.lineTo(playheadX + 5, 0);
+      ctx.lineTo(playheadX, 8);
       ctx.closePath();
-      ctx.fillStyle = '#ffffff';
       ctx.fill();
     }
 
