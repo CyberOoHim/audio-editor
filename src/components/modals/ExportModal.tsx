@@ -23,12 +23,25 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const [format, setFormat] = useState<ExportFormat>('wav');
   const [wavBitDepth, setWavBitDepth] = useState<16 | 24 | 32>(16);
   const [mp3Bitrate, setMp3Bitrate] = useState<128 | 192 | 256 | 320>(192);
+  const [aacBitrate, setAacBitrate] = useState<128 | 192 | 256 | 320>(192);
+  const [flacBitDepth, setFlacBitDepth] = useState<16 | 24>(24);
   const [sampleRate, setSampleRate] = useState<number>(44100);
   const [channels, setChannels] = useState<1 | 2>(2);
   const [exportScope, setExportScope] = useState<'all' | 'selection'>(hasSelection ? 'selection' : 'all');
   const [fileName, setFileName] = useState(currentFileName || 'exported_audio');
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
+
+  const availableFormats: { id: ExportFormat; label: string; desc: string }[] = [
+    { id: 'wav', label: 'WAV', desc: 'Uncompressed PCM' },
+    { id: 'mp3', label: 'MP3', desc: 'LAME Encoded' },
+    { id: 'aac', label: 'AAC', desc: 'Advanced Audio' },
+    { id: 'm4a', label: 'M4A', desc: 'MPEG-4 Audio' },
+    { id: 'flac', label: 'FLAC', desc: 'Studio Lossless' },
+    { id: 'ogg', label: 'OGG', desc: 'Ogg Container' },
+    { id: 'opus', label: 'OPUS', desc: 'Opus Audio' },
+    { id: 'webm', label: 'WEBM', desc: 'WebM Audio' }
+  ];
 
   const handleRunExport = async (destination: 'download' | 'library') => {
     setIsExporting(true);
@@ -38,6 +51,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       format,
       wavBitDepth,
       mp3Bitrate,
+      aacBitrate,
+      flacBitDepth,
       sampleRate,
       channels,
       exportScope,
@@ -59,7 +74,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title="Export & Convert Audio"
-      maxWidth="500px"
+      maxWidth="540px"
       footer={
         <>
           <button className="btn btn-secondary" onClick={onClose} disabled={isExporting}>
@@ -99,15 +114,26 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         {/* Format Selector */}
         <div className="form-group">
           <label className="form-label">Audio Format</label>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-            {(['wav', 'mp3', 'flac', 'ogg'] as ExportFormat[]).map((fmt) => (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(70px, 1fr))', gap: 6 }}>
+            {availableFormats.map((fmt) => (
               <button
-                key={fmt}
-                className={`btn btn-sm ${format === fmt ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setFormat(fmt)}
-                style={{ textTransform: 'uppercase', fontWeight: 600 }}
+                key={fmt.id}
+                type="button"
+                className={`btn btn-sm ${format === fmt.id ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setFormat(fmt.id)}
+                title={fmt.desc}
+                style={{
+                  textTransform: 'uppercase',
+                  fontWeight: 700,
+                  fontSize: 'calc(11px * var(--ui-font-scale, 1))',
+                  padding: '6px 4px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 2
+                }}
               >
-                {fmt}
+                <span>{fmt.label}</span>
               </button>
             ))}
           </div>
@@ -121,6 +147,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               {([16, 24, 32] as const).map((bits) => (
                 <button
                   key={bits}
+                  type="button"
                   className={`btn btn-sm ${wavBitDepth === bits ? 'btn-primary' : 'btn-secondary'}`}
                   style={{ flex: 1 }}
                   onClick={() => setWavBitDepth(bits)}
@@ -139,11 +166,50 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               {([128, 192, 256, 320] as const).map((br) => (
                 <button
                   key={br}
+                  type="button"
                   className={`btn btn-sm ${mp3Bitrate === br ? 'btn-primary' : 'btn-secondary'}`}
                   style={{ flex: 1 }}
                   onClick={() => setMp3Bitrate(br)}
                 >
                   {br} kbps
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {(format === 'aac' || format === 'm4a') && (
+          <div className="form-group">
+            <label className="form-label">{format.toUpperCase()} Target Bitrate</label>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {([128, 192, 256, 320] as const).map((br) => (
+                <button
+                  key={br}
+                  type="button"
+                  className={`btn btn-sm ${aacBitrate === br ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ flex: 1 }}
+                  onClick={() => setAacBitrate(br)}
+                >
+                  {br} kbps
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {format === 'flac' && (
+          <div className="form-group">
+            <label className="form-label">FLAC Lossless Bit Depth</label>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {([16, 24] as const).map((bits) => (
+                <button
+                  key={bits}
+                  type="button"
+                  className={`btn btn-sm ${flacBitDepth === bits ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ flex: 1 }}
+                  onClick={() => setFlacBitDepth(bits)}
+                >
+                  {bits}-bit Lossless
                 </button>
               ))}
             </div>
@@ -156,6 +222,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             <label className="form-label">Channels</label>
             <div style={{ display: 'flex', gap: 4 }}>
               <button
+                type="button"
                 className={`btn btn-sm ${channels === 2 ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ flex: 1 }}
                 onClick={() => setChannels(2)}
@@ -163,6 +230,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 Stereo
               </button>
               <button
+                type="button"
                 className={`btn btn-sm ${channels === 1 ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ flex: 1 }}
                 onClick={() => setChannels(1)}
@@ -191,6 +259,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           <label className="form-label">Export Scope</label>
           <div style={{ display: 'flex', gap: 6 }}>
             <button
+              type="button"
               className={`btn btn-sm ${exportScope === 'selection' ? 'btn-primary' : 'btn-secondary'}`}
               style={{ flex: 1 }}
               disabled={!hasSelection}
@@ -199,6 +268,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               {hasSelection ? 'Selected Region Only' : 'No Region Selected'}
             </button>
             <button
+              type="button"
               className={`btn btn-sm ${exportScope === 'all' ? 'btn-primary' : 'btn-secondary'}`}
               style={{ flex: 1 }}
               onClick={() => setExportScope('all')}

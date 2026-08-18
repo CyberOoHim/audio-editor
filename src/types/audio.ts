@@ -67,12 +67,14 @@ export interface AudioHistoryEntry {
   buffer: AudioBuffer;
 }
 
-export type ExportFormat = 'wav' | 'mp3' | 'flac' | 'ogg';
+export type ExportFormat = 'wav' | 'mp3' | 'aac' | 'm4a' | 'flac' | 'ogg' | 'opus' | 'webm';
 
 export interface ExportSettings {
   format: ExportFormat;
   wavBitDepth: 16 | 24 | 32;
   mp3Bitrate: 128 | 192 | 256 | 320;
+  aacBitrate?: 128 | 192 | 256 | 320;
+  flacBitDepth?: 16 | 24;
   sampleRate: number; // 44100, 48000, 96000
   channels: 1 | 2;
   exportScope: 'all' | 'selection';

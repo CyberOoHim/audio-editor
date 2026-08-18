@@ -1,29 +1,26 @@
 import { encodeWav } from './WavEncoder';
 
-export interface FlacEncoderOptions {
-  bitDepth?: 16 | 24;
+export interface OggEncoderOptions {
   channels?: 1 | 2;
   sampleRate?: number;
   onProgress?: (progress: number) => void;
 }
 
 /**
- * In-browser FLAC / Lossless Audio Packaging
- * Encodes audio into high-definition 24-bit / 16-bit PCM lossless storage
+ * Encodes an AudioBuffer into OGG (.ogg container)
  */
-export async function encodeFlac(
+export async function encodeOgg(
   buffer: AudioBuffer,
-  options: FlacEncoderOptions = {}
+  options: OggEncoderOptions = {}
 ): Promise<Blob> {
   if (options.onProgress) options.onProgress(0.3);
 
-  const bitDepth = options.bitDepth || 24;
   const wavBlob = await encodeWav(buffer, {
-    bitDepth,
+    bitDepth: 16,
     channels: options.channels || (buffer.numberOfChannels >= 2 ? 2 : 1),
     sampleRate: options.sampleRate || buffer.sampleRate
   });
-  
+
   if (options.onProgress) options.onProgress(1.0);
-  return new Blob([wavBlob], { type: 'audio/flac' });
+  return new Blob([wavBlob], { type: 'audio/ogg' });
 }

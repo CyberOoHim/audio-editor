@@ -2,7 +2,12 @@ import type { ExportSettings, AudioSelection } from '../../types/audio';
 import { sliceBuffer } from '../BufferUtils';
 import { encodeWav } from './WavEncoder';
 import { encodeMp3 } from './Mp3Encoder';
-import { encodeFlac, encodeOgg } from './FlacEncoder';
+import { encodeAac } from './AacEncoder';
+import { encodeM4a } from './M4aEncoder';
+import { encodeFlac } from './FlacEncoder';
+import { encodeOgg } from './OggEncoder';
+import { encodeOpus } from './OpusEncoder';
+import { encodeWebm } from './WebmEncoder';
 
 export async function exportAudio(
   buffer: AudioBuffer,
@@ -31,15 +36,55 @@ export async function exportAudio(
       });
       break;
 
+    case 'aac':
+      blob = await encodeAac(targetBuffer, {
+        bitrate: settings.aacBitrate || settings.mp3Bitrate,
+        channels: settings.channels,
+        sampleRate: settings.sampleRate,
+        onProgress
+      });
+      break;
+
+    case 'm4a':
+      blob = await encodeM4a(targetBuffer, {
+        bitrate: settings.aacBitrate || settings.mp3Bitrate,
+        channels: settings.channels,
+        sampleRate: settings.sampleRate,
+        onProgress
+      });
+      break;
+
     case 'flac':
       blob = await encodeFlac(targetBuffer, {
+        bitDepth: settings.flacBitDepth || 24,
         channels: settings.channels,
-        sampleRate: settings.sampleRate
+        sampleRate: settings.sampleRate,
+        onProgress
       });
       break;
 
     case 'ogg':
-      blob = await encodeOgg(targetBuffer);
+      blob = await encodeOgg(targetBuffer, {
+        channels: settings.channels,
+        sampleRate: settings.sampleRate,
+        onProgress
+      });
+      break;
+
+    case 'opus':
+      blob = await encodeOpus(targetBuffer, {
+        channels: settings.channels,
+        sampleRate: settings.sampleRate,
+        onProgress
+      });
+      break;
+
+    case 'webm':
+      blob = await encodeWebm(targetBuffer, {
+        channels: settings.channels,
+        sampleRate: settings.sampleRate,
+        onProgress
+      });
       break;
 
     case 'wav':

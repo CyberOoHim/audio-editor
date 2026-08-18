@@ -30,7 +30,7 @@
 - **Storage Quota Meter**: Real-time browser storage quota visualization.
 
 ### 💾 Multi-Format Audio Export
-- **Formats**: WAV (16-bit / 24-bit / 32-bit float), MP3 (VBR / CBR via Lamejs), and FLAC (lossless).
+- **Formats**: WAV (16-bit / 24-bit / 32-bit float), MP3 (128–320 kbps), AAC, M4A (MPEG-4 Audio), FLAC (16/24-bit Lossless), OGG, OPUS, and WEBM.
 - **Export Options**: Export entire project or only the selected region.
 - **Custom Sample Rates & Channels**: 44.1kHz, 48kHz, 96kHz / Stereo or Mono.
 
