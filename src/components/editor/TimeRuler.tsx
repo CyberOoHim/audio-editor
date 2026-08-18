@@ -98,13 +98,15 @@ export const TimeRuler: React.FC<TimeRulerProps> = ({
   }, [duration, zoom, scrollLeft, width, height]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      style={{
-        width: `${width}px`,
-        height: `${height}px`,
-        display: 'block'
-      }}
-    />
+    <div style={{ width: '100%', maxWidth: '100vw', height: `${height}px`, overflow: 'hidden', touchAction: 'none' }}>
+      <canvas
+        ref={canvasRef}
+        style={{
+          width: `${width}px`,
+          height: `${height}px`,
+          display: 'block'
+        }}
+      />
+    </div>
   );
 };

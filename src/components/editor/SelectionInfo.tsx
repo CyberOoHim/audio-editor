@@ -33,19 +33,9 @@ export const SelectionInfo: React.FC<SelectionInfoProps> = ({
   const selLength = hasSelection ? selection.end - selection.start : 0;
 
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: '6px 12px',
-      backgroundColor: 'var(--bg-panel)',
-      borderTop: '1px solid var(--border-subtle)',
-      fontSize: 12,
-      gap: 8,
-      flexWrap: 'wrap'
-    }}>
+    <div className="selection-info-bar">
       {/* Time stats */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
         {hasSelection ? (
           <>
             <div>
@@ -57,41 +47,41 @@ export const SelectionInfo: React.FC<SelectionInfoProps> = ({
               <span className="mono" style={{ color: 'var(--accent-cyan)' }}>{formatTime(selection.end)}</span>
             </div>
             <div>
-              <span style={{ color: 'var(--text-muted)' }}>Length: </span>
+              <span style={{ color: 'var(--text-muted)' }}>Len: </span>
               <span className="mono" style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>{formatTime(selLength)}</span>
             </div>
           </>
         ) : (
-          <div style={{ color: 'var(--text-muted)' }}>
-            No selection (Click & drag on waveform to select range)
+          <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+            Tap or drag to select • Swipe or use Pan mode to scroll
           </div>
         )}
       </div>
 
       {/* Quick Selection Actions */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
         {hasSelection && (
           <>
             <button
               className="btn btn-secondary btn-sm"
               onClick={onTrim}
-              title="Trim to selection (Keep only selected audio)"
+              title="Trim to selection"
             >
-              <Crop size={13} /> Trim
+              <Crop size={12} /> <span className="btn-text-desktop">Trim</span>
             </button>
             <button
               className="btn btn-secondary btn-sm"
               onClick={onCut}
-              title="Cut selection (Delete selected range)"
+              title="Cut selection"
             >
-              <Scissors size={13} /> Cut
+              <Scissors size={12} /> <span className="btn-text-desktop">Cut</span>
             </button>
             <button
               className="btn btn-ghost btn-sm"
               onClick={onClearSelection}
               title="Clear selection"
             >
-              <XSquare size={13} /> Clear
+              <XSquare size={12} /> <span className="btn-text-desktop">Clear</span>
             </button>
           </>
         )}
@@ -101,7 +91,7 @@ export const SelectionInfo: React.FC<SelectionInfoProps> = ({
           onClick={onSelectAll}
           title="Select entire audio track"
         >
-          <CheckSquare size={13} /> Select All
+          <CheckSquare size={12} /> <span className="btn-text-desktop">All</span>
         </button>
 
         <button
@@ -113,7 +103,7 @@ export const SelectionInfo: React.FC<SelectionInfoProps> = ({
           onClick={onToggleLoop}
           title={isLooping ? 'Loop is ON' : 'Toggle Looping'}
         >
-          <Repeat size={13} /> Loop
+          <Repeat size={12} /> <span className="btn-text-desktop">Loop</span>
         </button>
       </div>
     </div>

@@ -73,6 +73,7 @@ export function AudioStudioApp() {
   const [zoom, setZoom] = useState<number>(100); // pixels per second
   const [scrollLeft, setScrollLeft] = useState<number>(0);
   const [canvasDimensions, setCanvasDimensions] = useState<{ width: number; height: number }>({ width: 800, height: 260 });
+  const [interactionMode, setInteractionMode] = useState<'select' | 'pan'>('select');
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
   // Responsive UI & Modals State
@@ -95,20 +96,28 @@ export function AudioStudioApp() {
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
   }, []);
 
-  // Update Canvas Dimensions on Resize
+  // Update Canvas Dimensions on Resize using ResizeObserver
   useEffect(() => {
-    const updateDimensions = () => {
-      if (canvasContainerRef.current) {
-        const { clientWidth, clientHeight } = canvasContainerRef.current;
-        if (clientWidth > 0 && clientHeight > 0) {
-          setCanvasDimensions({ width: clientWidth, height: clientHeight });
-        }
+    if (!canvasContainerRef.current) return;
+    const container = canvasContainerRef.current;
+
+    const updateFromRect = (width: number, height: number) => {
+      if (width > 0 && height > 0) {
+        setCanvasDimensions({ width: Math.round(width), height: Math.round(height) });
       }
     };
 
-    updateDimensions();
-    window.addEventListener('resize', updateDimensions);
-    return () => window.removeEventListener('resize', updateDimensions);
+    updateFromRect(container.clientWidth, container.clientHeight);
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        updateFromRect(width, height);
+      }
+    });
+
+    ro.observe(container);
+    return () => ro.disconnect();
   }, []);
 
   // Initialize Database & Seed Demo Audio
@@ -633,9 +642,9 @@ export function AudioStudioApp() {
     <div className="app-container">
       {/* Top Header */}
       <header className="top-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <button
-            className="btn btn-ghost btn-icon"
+            className="btn btn-ghost btn-icon-sm"
             onClick={() => setSidebarOpen(!sidebarOpen)}
             title="Toggle File Library"
           >
@@ -651,26 +660,15 @@ export function AudioStudioApp() {
               <rect x="39" y="14" width="5" height="36" rx="2" fill="#818cf8" />
               <rect x="48" y="22" width="5" height="20" rx="2" fill="#a78bfa" />
             </svg>
-            <span>AudioCraft Studio</span>
+            <span className="brand-title-text">AudioCraft</span>
           </a>
 
           <span className="brand-badge">PWA</span>
         </div>
 
         {/* Current Active Track Header */}
-        <div style={{
-          fontSize: 13,
-          fontWeight: 600,
-          color: 'var(--text-primary)',
-          maxWidth: 300,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6
-        }}>
-          <span style={{ color: 'var(--text-muted)' }}>Track:</span>
+        <div className="track-header-display">
+          <span className="track-prefix-label" style={{ color: 'var(--text-muted)' }}>Track:</span>
           <span>{currentFileName}</span>
         </div>
 
@@ -682,7 +680,7 @@ export function AudioStudioApp() {
             title="Install PWA to Home Screen"
           >
             <Smartphone size={14} color="var(--accent-cyan)" />
-            <span style={{ display: window.innerWidth < 640 ? 'none' : 'inline' }}>Install App</span>
+            <span className="btn-text-desktop">Install</span>
           </button>
 
           <button
@@ -692,13 +690,22 @@ export function AudioStudioApp() {
             title="Export / Convert Audio (WAV, MP3, FLAC, OGG)"
           >
             <Download size={14} />
-            <span>Export / Convert</span>
+            <span>Export</span>
           </button>
         </div>
       </header>
 
       {/* Main Studio Body: Split View (Sidebar + Waveform Editor) */}
       <div className="main-content">
+        {/* Mobile Backdrop for Sidebar Drawer */}
+        {sidebarOpen && (
+          <div
+            className="backdrop"
+            style={{ zIndex: 30, background: 'rgba(0, 0, 0, 0.6)' }}
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
         {/* File Manager Sidebar */}
         <aside className={`sidebar-panel ${sidebarOpen ? 'open' : ''}`}>
           <FileManager
@@ -767,6 +774,8 @@ export function AudioStudioApp() {
               scrollLeft={scrollLeft}
               width={canvasDimensions.width}
               height={canvasDimensions.height}
+              interactionMode={interactionMode}
+              onInteractionModeChange={setInteractionMode}
               onSeek={handleSeek}
               onSelectRegion={setSelection}
               onZoomChange={setZoom}

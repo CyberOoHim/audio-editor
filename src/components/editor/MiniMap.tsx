@@ -116,7 +116,7 @@ export const MiniMap: React.FC<MiniMapProps> = ({
   if (!buffer) return null;
 
   return (
-    <div style={{ position: 'relative', width, height, borderBottom: '1px solid var(--border-subtle)' }}>
+    <div style={{ position: 'relative', width: '100%', maxWidth: '100vw', height, borderBottom: '1px solid var(--border-subtle)', overflow: 'hidden', touchAction: 'none' }}>
       <canvas
         ref={canvasRef}
         style={{ width: `${width}px`, height: `${height}px`, display: 'block', cursor: 'pointer' }}

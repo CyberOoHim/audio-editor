@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
+import { Hand, MousePointer } from 'lucide-react';
 import type { AudioSelection } from '../../types/audio';
 
 export interface WaveformCanvasProps {
@@ -9,6 +10,8 @@ export interface WaveformCanvasProps {
   scrollLeft: number;
   width: number;
   height: number;
+  interactionMode?: 'select' | 'pan';
+  onInteractionModeChange?: (mode: 'select' | 'pan') => void;
   onSeek: (time: number) => void;
   onSelectRegion: (selection: AudioSelection | null) => void;
   onZoomChange: (newZoom: number) => void;
@@ -25,6 +28,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   scrollLeft,
   width,
   height,
+  interactionMode = 'select',
+  onInteractionModeChange,
   onSeek,
   onSelectRegion,
   onZoomChange,
@@ -32,6 +37,19 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const [mode, setMode] = useState<'select' | 'pan'>(interactionMode);
+
+  useEffect(() => {
+    setMode(interactionMode);
+  }, [interactionMode]);
+
+  const handleModeChange = (newMode: 'select' | 'pan') => {
+    setMode(newMode);
+    if (onInteractionModeChange) {
+      onInteractionModeChange(newMode);
+    }
+  };
 
   const [dragMode, setDragMode] = useState<DragMode>('none');
   const dragStartRef = useRef<{ x: number; time: number; startSelection: AudioSelection | null; scrollLeft: number }>({
@@ -239,27 +257,29 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const x = e.clientX - rect.left;
     const clickTime = (scrollLeft + x) / zoom;
 
-    const HANDLE_HIT_PX = 14;
-    let mode: DragMode = 'create-selection';
+    const HANDLE_HIT_PX = 20; // larger hit area for fingers & mouse
+    let activeDragMode: DragMode = mode === 'pan' ? 'pan' : 'create-selection';
 
-    if (selection) {
+    if (selection && selection.end > selection.start) {
       const startX = selection.start * zoom - scrollLeft;
       const endX = selection.end * zoom - scrollLeft;
 
       if (Math.abs(x - startX) <= HANDLE_HIT_PX) {
-        mode = 'drag-handle-start';
+        activeDragMode = 'drag-handle-start';
       } else if (Math.abs(x - endX) <= HANDLE_HIT_PX) {
-        mode = 'drag-handle-end';
+        activeDragMode = 'drag-handle-end';
       }
     }
 
-    // Alt or Shift click creates playhead scrub directly
-    if (e.shiftKey || e.altKey) {
-      mode = 'scrub-playhead';
+    // Middle click or Space/Alt creates pan directly
+    if (e.button === 1 || e.altKey) {
+      activeDragMode = 'pan';
+    } else if (e.shiftKey) {
+      activeDragMode = 'scrub-playhead';
       onSeek(clickTime);
     }
 
-    setDragMode(mode);
+    setDragMode(activeDragMode);
     dragStartRef.current = {
       x,
       time: clickTime,
@@ -278,13 +298,16 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const x = e.clientX - rect.left;
     const currentTimeAtPointer = Math.max(0, Math.min(duration, (scrollLeft + x) / zoom));
 
-    if (dragMode === 'create-selection') {
+    if (dragMode === 'pan') {
+      const deltaX = x - dragStartRef.current.x;
+      const maxScroll = Math.max(0, duration * zoom - width);
+      const newScroll = Math.max(0, Math.min(maxScroll, dragStartRef.current.scrollLeft - deltaX));
+      onScrollChange(newScroll);
+    } else if (dragMode === 'create-selection') {
       const startTime = Math.min(dragStartRef.current.time, currentTimeAtPointer);
       const endTime = Math.max(dragStartRef.current.time, currentTimeAtPointer);
       if (endTime - startTime > 0.005) {
         onSelectRegion({ start: startTime, end: endTime });
-      } else {
-        onSeek(currentTimeAtPointer);
       }
     } else if (dragMode === 'drag-handle-start') {
       if (selection) {
@@ -302,14 +325,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    if (dragMode === 'create-selection') {
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (rect) {
-        const x = e.clientX - rect.left;
-        const clickTime = Math.max(0, Math.min(duration, (scrollLeft + x) / zoom));
-        if (Math.abs(x - dragStartRef.current.x) < 4) {
-          onSeek(clickTime);
-        }
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (rect) {
+      const x = e.clientX - rect.left;
+      const clickTime = Math.max(0, Math.min(duration, (scrollLeft + x) / zoom));
+      // If moved less than 5 pixels, treat as single tap / click to position playhead
+      if (Math.abs(x - dragStartRef.current.x) < 5) {
+        onSeek(clickTime);
       }
     }
 
@@ -395,8 +417,38 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
-      style={{ cursor: dragMode !== 'none' ? 'col-resize' : 'crosshair' }}
+      style={{
+        cursor: dragMode === 'pan' ? 'grabbing' : mode === 'pan' ? 'grab' : 'crosshair'
+      }}
     >
+      {/* Floating Mode Dock for instant toggle between Scroll/Pan & Select */}
+      <div className="touch-mode-dock">
+        <button
+          type="button"
+          className={`touch-mode-btn ${mode === 'pan' ? 'active' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleModeChange('pan');
+          }}
+          title="Pan / Scroll Mode: Swipe to scroll waveform"
+        >
+          <Hand size={12} />
+          <span>Pan</span>
+        </button>
+        <button
+          type="button"
+          className={`touch-mode-btn ${mode === 'select' ? 'active' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleModeChange('select');
+          }}
+          title="Select Mode: Drag to highlight audio region"
+        >
+          <MousePointer size={12} />
+          <span>Select</span>
+        </button>
+      </div>
+
       <canvas
         ref={canvasRef}
         className="waveform-canvas"

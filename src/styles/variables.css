@@ -46,7 +46,9 @@
   /* Ergonomic Touch Dimensions */
   --min-touch-target: 48px;
   --header-height: 56px;
+  --header-height-mobile: 48px;
   --transport-height: 72px;
+  --transport-height-mobile: 88px;
   --sidebar-width: 320px;
   --radius-sm: 6px;
   --radius-md: 10px;

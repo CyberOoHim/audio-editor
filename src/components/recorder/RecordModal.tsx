@@ -194,9 +194,9 @@ export const RecordModal: React.FC<RecordModalProps> = ({
         </div>
 
         {/* Recording Action Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, flexWrap: 'wrap', width: '100%' }}>
           {!isRecording && !recordedBuffer && (
-            <button className="btn btn-primary btn-lg" onClick={handleStartRecord}>
+            <button className="btn btn-primary btn-lg" style={{ width: '100%' }} onClick={handleStartRecord}>
               <Mic size={18} /> Start Studio Recording
             </button>
           )}
@@ -204,18 +204,20 @@ export const RecordModal: React.FC<RecordModalProps> = ({
           {isRecording && (
             <>
               <button
-                className="btn btn-secondary btn-lg"
+                className="btn btn-secondary"
+                style={{ flex: 1, minWidth: 100 }}
                 onClick={handlePauseResume}
               >
-                {isPaused ? <Play size={18} /> : <Pause size={18} />}
+                {isPaused ? <Play size={16} /> : <Pause size={16} />}
                 {isPaused ? 'Resume' : 'Pause'}
               </button>
 
               <button
-                className="btn btn-danger btn-lg"
+                className="btn btn-danger"
+                style={{ flex: 1, minWidth: 130 }}
                 onClick={handleStopRecord}
               >
-                <Square size={18} /> Stop Recording
+                <Square size={16} /> Stop Recording
               </button>
 
               <button
@@ -230,17 +232,17 @@ export const RecordModal: React.FC<RecordModalProps> = ({
 
           {recordedBuffer && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button
                   className="btn btn-primary btn-lg"
-                  style={{ flex: 1 }}
+                  style={{ flex: 1, minWidth: 140 }}
                   onClick={() => handleFinish('editor')}
                 >
                   <Check size={16} /> Load into Editor
                 </button>
                 <button
                   className="btn btn-secondary btn-lg"
-                  style={{ flex: 1 }}
+                  style={{ flex: 1, minWidth: 140 }}
                   onClick={() => handleFinish('library')}
                 >
                   <Radio size={16} /> Save to Library
