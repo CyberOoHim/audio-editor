@@ -1,4 +1,4 @@
-import type { FadeCurve } from '../types/audio';
+import type { FadeCurve, SignalType } from '../types/audio';
 
 export function createEmptyBuffer(
   ctx: BaseAudioContext,
@@ -279,4 +279,130 @@ export function appendBuffers(
     dst.set(srcB, bufferA.length);
   }
   return target;
+}
+
+export function insertBufferAt(
+  ctx: BaseAudioContext,
+  source: AudioBuffer,
+  insertBuf: AudioBuffer,
+  atSec: number
+): AudioBuffer {
+  const sampleRate = source.sampleRate;
+  const atSample = Math.min(source.length, Math.max(0, Math.floor(atSec * sampleRate)));
+  const insertLength = insertBuf.length;
+  const channels = Math.max(source.numberOfChannels, insertBuf.numberOfChannels);
+  const newLength = source.length + insertLength;
+
+  const target = ctx.createBuffer(channels, newLength, sampleRate);
+  for (let c = 0; c < channels; c++) {
+    const dstData = target.getChannelData(c);
+    const srcData = c < source.numberOfChannels ? source.getChannelData(c) : source.getChannelData(0);
+    const insData = c < insertBuf.numberOfChannels ? insertBuf.getChannelData(c) : insertBuf.getChannelData(0);
+
+    if (atSample > 0) {
+      dstData.set(srcData.subarray(0, atSample), 0);
+    }
+    dstData.set(insData, atSample);
+    if (atSample < source.length) {
+      dstData.set(srcData.subarray(atSample, source.length), atSample + insertLength);
+    }
+  }
+  return target;
+}
+
+export function replaceBufferRegion(
+  ctx: BaseAudioContext,
+  source: AudioBuffer,
+  replaceBuf: AudioBuffer,
+  startSec: number,
+  endSec: number
+): AudioBuffer {
+  const sampleRate = source.sampleRate;
+  const startSample = Math.max(0, Math.floor(startSec * sampleRate));
+  const endSample = Math.min(source.length, Math.floor(endSec * sampleRate));
+  const channels = Math.max(source.numberOfChannels, replaceBuf.numberOfChannels);
+  const newLength = source.length - (endSample - startSample) + replaceBuf.length;
+
+  const target = ctx.createBuffer(channels, Math.max(1, newLength), sampleRate);
+  for (let c = 0; c < channels; c++) {
+    const dstData = target.getChannelData(c);
+    const srcData = c < source.numberOfChannels ? source.getChannelData(c) : source.getChannelData(0);
+    const repData = c < replaceBuf.numberOfChannels ? replaceBuf.getChannelData(c) : replaceBuf.getChannelData(0);
+
+    if (startSample > 0) {
+      dstData.set(srcData.subarray(0, startSample), 0);
+    }
+    dstData.set(repData, startSample);
+    if (endSample < source.length) {
+      dstData.set(srcData.subarray(endSample, source.length), startSample + replaceBuf.length);
+    }
+  }
+  return target;
+}
+
+export function generateSignalBuffer(
+  ctx: BaseAudioContext,
+  options: {
+    type: SignalType;
+    frequency: number;
+    gainDb: number;
+    durationSec: number;
+    channels: 1 | 2;
+    sampleRate?: number;
+  }
+): AudioBuffer {
+  const sampleRate = options.sampleRate || ctx.sampleRate || 44100;
+  const numSamples = Math.max(1, Math.floor(options.durationSec * sampleRate));
+  const channels = options.channels;
+  const buffer = ctx.createBuffer(channels, numSamples, sampleRate);
+  const linearGain = Math.pow(10, options.gainDb / 20);
+  const freq = options.frequency;
+
+  for (let c = 0; c < channels; c++) {
+    const data = buffer.getChannelData(c);
+
+    if (options.type === 'white-noise') {
+      for (let i = 0; i < numSamples; i++) {
+        data[i] = (Math.random() * 2 - 1) * linearGain;
+      }
+    } else if (options.type === 'pink-noise') {
+      let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+      for (let i = 0; i < numSamples; i++) {
+        const white = Math.random() * 2 - 1;
+        b0 = 0.99886 * b0 + white * 0.0555179;
+        b1 = 0.99332 * b1 + white * 0.0750759;
+        b2 = 0.96900 * b2 + white * 0.1538520;
+        b3 = 0.86650 * b3 + white * 0.3104856;
+        b4 = 0.55000 * b4 + white * 0.5329522;
+        b5 = -0.7616 * b5 - white * 0.0168980;
+        const pink = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
+        b6 = white * 0.115926;
+        data[i] = Math.max(-1, Math.min(1, pink * 0.11 * linearGain));
+      }
+    } else {
+      for (let i = 0; i < numSamples; i++) {
+        const phase = (i * freq / sampleRate) % 1;
+        let val = 0;
+
+        switch (options.type) {
+          case 'sine':
+            val = Math.sin(2 * Math.PI * phase);
+            break;
+          case 'square':
+            val = phase < 0.5 ? 1.0 : -1.0;
+            break;
+          case 'triangle':
+            val = Math.abs(4 * phase - 2) - 1.0;
+            break;
+          case 'sawtooth':
+            val = 2 * phase - 1.0;
+            break;
+        }
+
+        data[i] = val * linearGain;
+      }
+    }
+  }
+
+  return buffer;
 }

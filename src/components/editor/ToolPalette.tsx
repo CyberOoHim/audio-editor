@@ -11,39 +11,52 @@ import {
   FlipHorizontal,
   Split,
   PlusCircle,
-  BarChart2
+  BarChart2,
+  Radio,
+  SlidersHorizontal
 } from 'lucide-react';
+import type { FadeType } from '../../types/audio';
 
 export interface ToolPaletteProps {
   hasSelection: boolean;
+  hasBuffer: boolean;
+  fadeInDuration: number;
+  fadeOutDuration: number;
   onTrim: () => void;
   onCut: () => void;
   onSilence: () => void;
   onInsertSilence: () => void;
-  onFadeIn: () => void;
-  onFadeOut: () => void;
+  onFadeInQuick: () => void;
+  onFadeOutQuick: () => void;
+  onOpenFadeModal: (type?: FadeType) => void;
   onGainModal: () => void;
-  onNormalize: (targetDb: number) => void;
+  onOpenNormalizeModal: () => void;
   onReverse: () => void;
   onInvert: () => void;
   onSplit: () => void;
   onOpenEffects: () => void;
+  onOpenGenerator: () => void;
 }
 
 export const ToolPalette: React.FC<ToolPaletteProps> = ({
   hasSelection,
+  hasBuffer,
+  fadeInDuration,
+  fadeOutDuration,
   onTrim,
   onCut,
   onSilence,
   onInsertSilence,
-  onFadeIn,
-  onFadeOut,
+  onFadeInQuick,
+  onFadeOutQuick,
+  onOpenFadeModal,
   onGainModal,
-  onNormalize,
+  onOpenNormalizeModal,
   onReverse,
   onInvert,
   onSplit,
-  onOpenEffects
+  onOpenEffects,
+  onOpenGenerator
 }) => {
   return (
     <div className="editor-toolbar">
@@ -52,7 +65,7 @@ export const ToolPalette: React.FC<ToolPaletteProps> = ({
         <button
           className="btn btn-secondary btn-sm"
           onClick={onTrim}
-          disabled={!hasSelection}
+          disabled={!hasSelection || !hasBuffer}
           title="Trim: Keep only the selection and delete the rest"
         >
           <Crop size={14} color="var(--accent-cyan)" /> Trim
@@ -61,7 +74,7 @@ export const ToolPalette: React.FC<ToolPaletteProps> = ({
         <button
           className="btn btn-secondary btn-sm"
           onClick={onCut}
-          disabled={!hasSelection}
+          disabled={!hasSelection || !hasBuffer}
           title="Cut / Delete selected audio region"
         >
           <Scissors size={14} /> Cut
@@ -70,7 +83,7 @@ export const ToolPalette: React.FC<ToolPaletteProps> = ({
         <button
           className="btn btn-secondary btn-sm"
           onClick={onSilence}
-          disabled={!hasSelection}
+          disabled={!hasSelection || !hasBuffer}
           title="Mute / Silence selected region"
         >
           <VolumeX size={14} /> Silence
@@ -79,14 +92,24 @@ export const ToolPalette: React.FC<ToolPaletteProps> = ({
         <button
           className="btn btn-secondary btn-sm"
           onClick={onInsertSilence}
-          title="Insert silence at playhead position"
+          disabled={!hasBuffer}
+          title="Insert customizable silence gap at playhead or bounds"
         >
           <PlusCircle size={14} /> +Silence
         </button>
 
         <button
           className="btn btn-secondary btn-sm"
+          onClick={onOpenGenerator}
+          title="Synthesize test tones (Sine, Square, Triangle, Noise)"
+        >
+          <Radio size={14} color="var(--accent-cyan)" /> +Signal
+        </button>
+
+        <button
+          className="btn btn-secondary btn-sm"
           onClick={onSplit}
+          disabled={!hasBuffer}
           title="Split track at current playhead"
         >
           <Split size={14} /> Split
@@ -95,29 +118,55 @@ export const ToolPalette: React.FC<ToolPaletteProps> = ({
 
       <div className="tool-divider" />
 
-      {/* Fades & Dynamics */}
+      {/* Fades & Dynamics Group */}
       <div className="tool-group">
         <button
           className="btn btn-secondary btn-sm"
-          onClick={onFadeIn}
-          disabled={!hasSelection}
-          title="Fade In across selected region"
+          onClick={onFadeInQuick}
+          disabled={!hasBuffer}
+          title={
+            hasSelection
+              ? 'Quick Fade In over selection'
+              : `Quick Fade In at start (${fadeInDuration.toFixed(1)}s)`
+          }
         >
-          <TrendingUp size={14} color="var(--accent-emerald)" /> Fade In
+          <TrendingUp size={14} color="var(--accent-emerald)" />
+          <span>Fade In</span>
+          <span style={{ fontSize: 10, opacity: 0.7, marginLeft: -2 }}>
+            {hasSelection ? 'Sel' : `${fadeInDuration}s`}
+          </span>
         </button>
 
         <button
           className="btn btn-secondary btn-sm"
-          onClick={onFadeOut}
-          disabled={!hasSelection}
-          title="Fade Out across selected region"
+          onClick={onFadeOutQuick}
+          disabled={!hasBuffer}
+          title={
+            hasSelection
+              ? 'Quick Fade Out over selection'
+              : `Quick Fade Out at end (${fadeOutDuration.toFixed(1)}s)`
+          }
         >
-          <TrendingDown size={14} color="var(--accent-amber)" /> Fade Out
+          <TrendingDown size={14} color="var(--accent-amber)" />
+          <span>Fade Out</span>
+          <span style={{ fontSize: 10, opacity: 0.7, marginLeft: -2 }}>
+            {hasSelection ? 'Sel' : `${fadeOutDuration}s`}
+          </span>
+        </button>
+
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => onOpenFadeModal(hasSelection ? 'in' : 'in')}
+          disabled={!hasBuffer}
+          title="Configure custom fade duration, curve shapes & position"
+        >
+          <SlidersHorizontal size={13} color="var(--accent-cyan)" /> Fade...
         </button>
 
         <button
           className="btn btn-secondary btn-sm"
           onClick={onGainModal}
+          disabled={!hasBuffer}
           title="Adjust Gain (Amplification / Attenuation)"
         >
           <Volume2 size={14} /> Gain dB
@@ -125,10 +174,11 @@ export const ToolPalette: React.FC<ToolPaletteProps> = ({
 
         <button
           className="btn btn-secondary btn-sm"
-          onClick={() => onNormalize(0)}
-          title="Normalize Peak to 0.0 dBFS"
+          onClick={onOpenNormalizeModal}
+          disabled={!hasBuffer}
+          title="Normalize Peak Amplitude (True Peak, -1dB Streaming, 0dBFS)"
         >
-          <BarChart2 size={14} color="var(--accent-blue)" /> Normalize (0dB)
+          <BarChart2 size={14} color="var(--accent-blue)" /> Normalize...
         </button>
       </div>
 
@@ -139,6 +189,7 @@ export const ToolPalette: React.FC<ToolPaletteProps> = ({
         <button
           className="btn btn-secondary btn-sm"
           onClick={onReverse}
+          disabled={!hasBuffer}
           title="Reverse audio (playback backwards)"
         >
           <RotateCcw size={14} /> Reverse
@@ -147,6 +198,7 @@ export const ToolPalette: React.FC<ToolPaletteProps> = ({
         <button
           className="btn btn-secondary btn-sm"
           onClick={onInvert}
+          disabled={!hasBuffer}
           title="Invert Phase (flip polarity)"
         >
           <FlipHorizontal size={14} /> Invert
@@ -155,7 +207,8 @@ export const ToolPalette: React.FC<ToolPaletteProps> = ({
         <button
           className="btn btn-primary btn-sm"
           onClick={onOpenEffects}
-          title="Open EQ, Filters & Compressor DSP Studio"
+          disabled={!hasBuffer}
+          title="Open EQ, Highpass/Lowpass Filters & Compressor DSP Studio"
         >
           <Sliders size={14} /> Effects & EQ
         </button>

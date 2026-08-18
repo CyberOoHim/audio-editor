@@ -8,6 +8,31 @@ export type PlayState = 'idle' | 'playing' | 'paused' | 'recording';
 export type TimeFormat = 'hms' | 'seconds' | 'samples' | 'smpte';
 
 export type FadeCurve = 'linear' | 'logarithmic' | 'exponential' | 's-curve';
+export type FadeType = 'in' | 'out';
+export type FadePosition = 'start' | 'end' | 'selection' | 'playhead';
+
+export interface FadeSettings {
+  type: FadeType;
+  durationSec: number;
+  curve: FadeCurve;
+  position: FadePosition;
+}
+
+export interface NormalizeSettings {
+  targetDb: number; // dBFS (-30 to 0)
+  scope: 'all' | 'selection';
+}
+
+export type SignalType = 'sine' | 'square' | 'sawtooth' | 'triangle' | 'white-noise' | 'pink-noise';
+
+export interface SignalGeneratorSettings {
+  type: SignalType;
+  frequency: number; // Hz
+  gainDb: number;    // dBFS (-60 to 0)
+  durationSec: number;
+  channels: 1 | 2;
+  placement: 'playhead' | 'start' | 'end' | 'replace-selection' | 'new-file';
+}
 
 export interface EQSettings {
   enabled: boolean;

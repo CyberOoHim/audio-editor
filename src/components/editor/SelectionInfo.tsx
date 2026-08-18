@@ -1,28 +1,42 @@
 import React from 'react';
-import { Scissors, Crop, CheckSquare, XSquare, Repeat } from 'lucide-react';
-import type { AudioSelection } from '../../types/audio';
+import { Scissors, Crop, CheckSquare, XSquare, Repeat, TrendingUp } from 'lucide-react';
+import type { AudioSelection, TimeFormat } from '../../types/audio';
 
 export interface SelectionInfoProps {
   selection: AudioSelection | null;
   duration?: number;
+  sampleRate?: number;
+  timeFormat?: TimeFormat;
+  onToggleTimeFormat?: () => void;
   isLooping: boolean;
   onSelectAll: () => void;
   onClearSelection: () => void;
   onToggleLoop: () => void;
   onTrim: () => void;
   onCut: () => void;
+  onFadeSelection?: () => void;
 }
 
 export const SelectionInfo: React.FC<SelectionInfoProps> = ({
   selection,
+  sampleRate = 44100,
+  timeFormat = 'hms',
+  onToggleTimeFormat,
   isLooping,
   onSelectAll,
   onClearSelection,
   onToggleLoop,
   onTrim,
-  onCut
+  onCut,
+  onFadeSelection
 }) => {
   const formatTime = (sec: number): string => {
+    if (timeFormat === 'seconds') {
+      return `${sec.toFixed(3)}s`;
+    }
+    if (timeFormat === 'samples') {
+      return `${Math.floor(sec * sampleRate).toLocaleString()} spl`;
+    }
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     const ms = Math.floor((sec % 1) * 1000);
@@ -34,8 +48,12 @@ export const SelectionInfo: React.FC<SelectionInfoProps> = ({
 
   return (
     <div className="selection-info-bar">
-      {/* Time stats */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+      {/* Time stats with format switcher on click */}
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, cursor: 'pointer' }}
+        onClick={onToggleTimeFormat}
+        title="Click to toggle time format (Timecode / Seconds / Samples)"
+      >
         {hasSelection ? (
           <>
             <div>
@@ -50,10 +68,13 @@ export const SelectionInfo: React.FC<SelectionInfoProps> = ({
               <span style={{ color: 'var(--text-muted)' }}>Len: </span>
               <span className="mono" style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>{formatTime(selLength)}</span>
             </div>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-input)', padding: '1px 5px', borderRadius: 3 }}>
+              {timeFormat.toUpperCase()}
+            </span>
           </>
         ) : (
           <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-            Tap or drag to select • Swipe or use Pan mode to scroll
+            Tap or drag to select • Click time display to toggle format ({timeFormat.toUpperCase()})
           </div>
         )}
       </div>
@@ -62,6 +83,15 @@ export const SelectionInfo: React.FC<SelectionInfoProps> = ({
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
         {hasSelection && (
           <>
+            {onFadeSelection && (
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={onFadeSelection}
+                title="Fade selection with custom duration & curve"
+              >
+                <TrendingUp size={12} color="var(--accent-emerald)" /> <span className="btn-text-desktop">Fade</span>
+              </button>
+            )}
             <button
               className="btn btn-secondary btn-sm"
               onClick={onTrim}

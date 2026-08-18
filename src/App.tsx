@@ -6,7 +6,19 @@ import {
 } from 'lucide-react';
 
 import type { FolderItem, AudioFileItem, StorageUsage } from './types/storage';
-import type { PlayState, AudioSelection, EQSettings, FilterSettings, CompressorSettings, ExportSettings } from './types/audio';
+import type {
+  PlayState,
+  AudioSelection,
+  EQSettings,
+  FilterSettings,
+  CompressorSettings,
+  ExportSettings,
+  FadeCurve,
+  FadeType,
+  FadePosition,
+  TimeFormat,
+  SignalGeneratorSettings
+} from './types/audio';
 
 import {
   initDatabase,
@@ -45,6 +57,9 @@ import { EffectsModal } from './components/modals/EffectsModal';
 import { ExportModal } from './components/modals/ExportModal';
 import { GainModal } from './components/modals/GainModal';
 import { SilenceModal } from './components/modals/SilenceModal';
+import { FadeModal } from './components/modals/FadeModal';
+import { NormalizeModal } from './components/modals/NormalizeModal';
+import { GeneratorModal } from './components/modals/GeneratorModal';
 import { PwaInstallModal } from './components/modals/PwaInstallModal';
 import { ToastProvider, useToast } from './components/common/Toast';
 
@@ -66,8 +81,15 @@ export function AudioStudioApp() {
   const [selection, setSelection] = useState<AudioSelection | null>(null);
   const [isLooping, setIsLooping] = useState<boolean>(false);
   const [volume, setVolume] = useState<number>(1.0);
+  const [playbackRate, setPlaybackRate] = useState<number>(1.0);
+  const [timeFormat, setTimeFormat] = useState<TimeFormat>('hms');
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
+
+  // User Settable Envelope & Tool Defaults
+  const [fadeInDuration, setFadeInDuration] = useState<number>(1.5);
+  const [fadeOutDuration, setFadeOutDuration] = useState<number>(1.5);
+  const [fadeCurve, setFadeCurve] = useState<FadeCurve>('linear');
 
   // Canvas Viewport & Zoom State
   const [zoom, setZoom] = useState<number>(100); // pixels per second
@@ -83,6 +105,10 @@ export function AudioStudioApp() {
   const [exportModalOpen, setExportModalOpen] = useState<boolean>(false);
   const [gainModalOpen, setGainModalOpen] = useState<boolean>(false);
   const [silenceModalOpen, setSilenceModalOpen] = useState<boolean>(false);
+  const [fadeModalOpen, setFadeModalOpen] = useState<boolean>(false);
+  const [fadeModalInitialType, setFadeModalInitialType] = useState<FadeType>('in');
+  const [normalizeModalOpen, setNormalizeModalOpen] = useState<boolean>(false);
+  const [generatorModalOpen, setGeneratorModalOpen] = useState<boolean>(false);
   const [pwaModalOpen, setPwaModalOpen] = useState<boolean>(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
@@ -342,6 +368,20 @@ export function AudioStudioApp() {
     showToast('Cut selected region', 'success');
   };
 
+  const handleToggleTimeFormat = () => {
+    setTimeFormat((prev) => {
+      if (prev === 'hms') return 'seconds';
+      if (prev === 'seconds') return 'samples';
+      return 'hms';
+    });
+  };
+
+  const handlePlaybackRateChange = (rate: number) => {
+    setPlaybackRate(rate);
+    audioEngine.setPlaybackRate(rate);
+    showToast(`Playback speed set to ${rate}x`, 'info');
+  };
+
   const handleSilence = () => {
     if (!currentBuffer || !selection || selection.end <= selection.start) return;
     const ctx = audioEngine.getContext();
@@ -350,30 +390,108 @@ export function AudioStudioApp() {
     showToast('Silenced selection', 'success');
   };
 
-  const handleInsertSilence = (durationSec: number) => {
+  const handleInsertSilence = (
+    durationSec: number,
+    placement: 'playhead' | 'start' | 'end' | 'replace-selection' = 'playhead'
+  ) => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
-    const newBuffer = BufferUtils.insertSilence(ctx, currentBuffer, currentTime, durationSec);
-    audioEngine.setBufferDirectly(newBuffer, `Inserted ${durationSec}s silence`);
-    showToast(`Inserted ${durationSec}s silence`, 'success');
+    let newBuffer: AudioBuffer;
+    let label = '';
+
+    if (placement === 'replace-selection' && selection && selection.end > selection.start) {
+      const silenceBuf = BufferUtils.createEmptyBuffer(
+        ctx,
+        currentBuffer.numberOfChannels,
+        Math.floor(durationSec * currentBuffer.sampleRate),
+        currentBuffer.sampleRate
+      );
+      newBuffer = BufferUtils.replaceBufferRegion(ctx, currentBuffer, silenceBuf, selection.start, selection.end);
+      label = `Replaced selection with ${durationSec}s silence`;
+    } else {
+      let atSec = currentTime;
+      if (placement === 'start') atSec = 0;
+      if (placement === 'end') atSec = currentBuffer.duration;
+      newBuffer = BufferUtils.insertSilence(ctx, currentBuffer, atSec, durationSec);
+      label = `Inserted ${durationSec}s silence at ${atSec.toFixed(2)}s`;
+    }
+
+    audioEngine.setBufferDirectly(newBuffer, label);
+    showToast(label, 'success');
   };
 
-  const handleFadeIn = () => {
-    if (!currentBuffer || !selection || selection.end <= selection.start) return;
+  const handleQuickFadeIn = () => {
+    if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
-    const duration = selection.end - selection.start;
-    const newBuffer = BufferUtils.applyFade(ctx, currentBuffer, selection.start, duration, 'in', 'linear');
-    audioEngine.setBufferDirectly(newBuffer, `Fade In (${duration.toFixed(2)}s)`);
-    showToast('Fade In applied', 'success');
+    let startSec = 0;
+    let duration = fadeInDuration;
+
+    if (selection && selection.end > selection.start) {
+      startSec = selection.start;
+      duration = selection.end - selection.start;
+    }
+
+    const safeDuration = Math.min(duration, Math.max(0.01, currentBuffer.duration - startSec));
+    const newBuffer = BufferUtils.applyFade(ctx, currentBuffer, startSec, safeDuration, 'in', fadeCurve);
+    audioEngine.setBufferDirectly(newBuffer, `Fade In (${safeDuration.toFixed(2)}s, ${fadeCurve})`);
+    showToast(`Applied Fade In (${safeDuration.toFixed(2)}s)`, 'success');
   };
 
-  const handleFadeOut = () => {
-    if (!currentBuffer || !selection || selection.end <= selection.start) return;
+  const handleQuickFadeOut = () => {
+    if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
-    const duration = selection.end - selection.start;
-    const newBuffer = BufferUtils.applyFade(ctx, currentBuffer, selection.start, duration, 'out', 'linear');
-    audioEngine.setBufferDirectly(newBuffer, `Fade Out (${duration.toFixed(2)}s)`);
-    showToast('Fade Out applied', 'success');
+    let startSec = Math.max(0, currentBuffer.duration - fadeOutDuration);
+    let duration = fadeOutDuration;
+
+    if (selection && selection.end > selection.start) {
+      startSec = selection.start;
+      duration = selection.end - selection.start;
+    }
+
+    const safeDuration = Math.min(duration, Math.max(0.01, currentBuffer.duration - startSec));
+    const newBuffer = BufferUtils.applyFade(ctx, currentBuffer, startSec, safeDuration, 'out', fadeCurve);
+    audioEngine.setBufferDirectly(newBuffer, `Fade Out (${safeDuration.toFixed(2)}s, ${fadeCurve})`);
+    showToast(`Applied Fade Out (${safeDuration.toFixed(2)}s)`, 'success');
+  };
+
+  const handleOpenFadeModal = (type: FadeType = 'in') => {
+    setFadeModalInitialType(type);
+    setFadeModalOpen(true);
+  };
+
+  const handleApplyFade = (
+    type: FadeType,
+    durationSec: number,
+    curve: FadeCurve,
+    position: FadePosition
+  ) => {
+    if (!currentBuffer) return;
+    const ctx = audioEngine.getContext();
+    if (type === 'in') {
+      setFadeInDuration(durationSec);
+    } else {
+      setFadeOutDuration(durationSec);
+    }
+    setFadeCurve(curve);
+
+    let startSec = 0;
+    const trackDur = currentBuffer.duration;
+
+    if (position === 'start') {
+      startSec = 0;
+    } else if (position === 'end') {
+      startSec = Math.max(0, trackDur - durationSec);
+    } else if (position === 'selection' && selection && selection.end > selection.start) {
+      startSec = selection.start;
+    } else if (position === 'playhead') {
+      startSec = type === 'in' ? currentTime : Math.max(0, currentTime - durationSec);
+    }
+
+    const safeDuration = Math.min(durationSec, Math.max(0.01, trackDur - startSec));
+    const newBuffer = BufferUtils.applyFade(ctx, currentBuffer, startSec, safeDuration, type, curve);
+    const label = `${type === 'in' ? 'Fade In' : 'Fade Out'} (${safeDuration.toFixed(2)}s, ${curve})`;
+    audioEngine.setBufferDirectly(newBuffer, label);
+    showToast(`Applied ${label}`, 'success');
   };
 
   const handleApplyGain = (gainDb: number, target: 'selection' | 'all') => {
@@ -386,14 +504,75 @@ export function AudioStudioApp() {
     showToast(`Applied ${gainDb > 0 ? '+' : ''}${gainDb}dB gain`, 'success');
   };
 
-  const handleNormalize = (targetDb: number = 0) => {
+  const handleApplyNormalize = (targetDb: number = -0.1, scope: 'all' | 'selection' = 'all') => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
-    const startSec = selection ? selection.start : undefined;
-    const endSec = selection ? selection.end : undefined;
+    const startSec = scope === 'selection' && selection ? selection.start : undefined;
+    const endSec = scope === 'selection' && selection ? selection.end : undefined;
     const newBuffer = BufferUtils.normalizeBuffer(ctx, currentBuffer, targetDb, startSec, endSec);
-    audioEngine.setBufferDirectly(newBuffer, `Normalize to ${targetDb}dBFS`);
+    const label = `Normalize to ${targetDb > 0 ? `+${targetDb}` : targetDb}dBFS (${scope})`;
+    audioEngine.setBufferDirectly(newBuffer, label);
     showToast(`Normalized to ${targetDb}dBFS`, 'success');
+  };
+
+  const handleGenerateSignal = async (settings: SignalGeneratorSettings) => {
+    const ctx = audioEngine.getContext();
+    const genBuffer = BufferUtils.generateSignalBuffer(ctx, {
+      type: settings.type,
+      frequency: settings.frequency,
+      gainDb: settings.gainDb,
+      durationSec: settings.durationSec,
+      channels: settings.channels,
+      sampleRate: currentBuffer ? currentBuffer.sampleRate : 44100
+    });
+
+    const isNoise = settings.type === 'white-noise' || settings.type === 'pink-noise';
+    const genName = isNoise
+      ? `${settings.type.replace('-', ' ')} (${settings.durationSec}s)`
+      : `${settings.frequency}Hz ${settings.type} (${settings.durationSec}s)`;
+
+    if (settings.placement === 'new-file' || !currentBuffer) {
+      const res = await exportAudio(genBuffer, {
+        format: 'wav',
+        wavBitDepth: 16,
+        mp3Bitrate: 192,
+        sampleRate: genBuffer.sampleRate,
+        channels: genBuffer.numberOfChannels as 1 | 2,
+        exportScope: 'all',
+        fileName: genName
+      }, null, ctx);
+
+      const savedFile = await saveAudioFile({
+        name: genName,
+        folderId: activeFolderId,
+        duration: genBuffer.duration,
+        sampleRate: genBuffer.sampleRate,
+        numberOfChannels: genBuffer.numberOfChannels,
+        format: 'wav',
+        size: res.blob.size,
+        blob: res.blob,
+        waveformPeaks: generateWaveformPeaks(genBuffer, 64),
+        tags: ['synth', settings.type]
+      });
+
+      await loadData();
+      loadFileToEditor(savedFile);
+      showToast(`Generated and loaded "${genName}"`, 'success');
+      return;
+    }
+
+    let resultBuffer: AudioBuffer;
+    if (settings.placement === 'replace-selection' && selection && selection.end > selection.start) {
+      resultBuffer = BufferUtils.replaceBufferRegion(ctx, currentBuffer, genBuffer, selection.start, selection.end);
+    } else {
+      let atSec = currentTime;
+      if (settings.placement === 'start') atSec = 0;
+      if (settings.placement === 'end') atSec = currentBuffer.duration;
+      resultBuffer = BufferUtils.insertBufferAt(ctx, currentBuffer, genBuffer, atSec);
+    }
+
+    audioEngine.setBufferDirectly(resultBuffer, `Inserted ${genName}`);
+    showToast(`Inserted ${genName}`, 'success');
   };
 
   const handleReverse = () => {
@@ -731,18 +910,23 @@ export function AudioStudioApp() {
           {/* DSP Editing Tool Palette */}
           <ToolPalette
             hasSelection={Boolean(selection && selection.end > selection.start)}
+            hasBuffer={Boolean(currentBuffer)}
+            fadeInDuration={fadeInDuration}
+            fadeOutDuration={fadeOutDuration}
             onTrim={handleTrim}
             onCut={handleCut}
             onSilence={handleSilence}
             onInsertSilence={() => setSilenceModalOpen(true)}
-            onFadeIn={handleFadeIn}
-            onFadeOut={handleFadeOut}
+            onFadeInQuick={handleQuickFadeIn}
+            onFadeOutQuick={handleQuickFadeOut}
+            onOpenFadeModal={handleOpenFadeModal}
             onGainModal={() => setGainModalOpen(true)}
-            onNormalize={() => handleNormalize(0)}
+            onOpenNormalizeModal={() => setNormalizeModalOpen(true)}
             onReverse={handleReverse}
             onInvert={handleInvert}
             onSplit={handleSplit}
             onOpenEffects={() => setEffectsModalOpen(true)}
+            onOpenGenerator={() => setGeneratorModalOpen(true)}
           />
 
           {/* MiniMap Overview */}
@@ -787,12 +971,16 @@ export function AudioStudioApp() {
           <SelectionInfo
             selection={selection}
             duration={duration}
+            sampleRate={currentBuffer?.sampleRate || 44100}
+            timeFormat={timeFormat}
+            onToggleTimeFormat={handleToggleTimeFormat}
             isLooping={isLooping}
             onSelectAll={handleSelectAll}
             onClearSelection={handleClearSelection}
             onToggleLoop={handleToggleLoop}
             onTrim={handleTrim}
             onCut={handleCut}
+            onFadeSelection={() => handleOpenFadeModal('in')}
           />
 
           {/* Bottom Studio Transport Bar */}
@@ -803,6 +991,9 @@ export function AudioStudioApp() {
             canUndo={canUndo}
             canRedo={canRedo}
             volume={volume}
+            playbackRate={playbackRate}
+            sampleRate={currentBuffer?.sampleRate || 44100}
+            timeFormat={timeFormat}
             onPlay={handlePlay}
             onPause={handlePause}
             onStop={handleStop}
@@ -813,6 +1004,8 @@ export function AudioStudioApp() {
             onZoomOut={handleZoomOut}
             onZoomFit={handleZoomFit}
             onVolumeChange={handleVolumeChange}
+            onPlaybackRateChange={handlePlaybackRateChange}
+            onToggleTimeFormat={handleToggleTimeFormat}
           />
         </main>
       </div>
@@ -822,6 +1015,31 @@ export function AudioStudioApp() {
         isOpen={recordModalOpen}
         onClose={() => setRecordModalOpen(false)}
         onSaveRecording={handleSaveRecording}
+      />
+
+      <FadeModal
+        isOpen={fadeModalOpen}
+        onClose={() => setFadeModalOpen(false)}
+        selection={selection}
+        trackDuration={duration}
+        currentTime={currentTime}
+        initialType={fadeModalInitialType}
+        onApplyFade={handleApplyFade}
+      />
+
+      <NormalizeModal
+        isOpen={normalizeModalOpen}
+        onClose={() => setNormalizeModalOpen(false)}
+        selection={selection}
+        onApplyNormalize={handleApplyNormalize}
+      />
+
+      <GeneratorModal
+        isOpen={generatorModalOpen}
+        onClose={() => setGeneratorModalOpen(false)}
+        selection={selection}
+        currentTime={currentTime}
+        onGenerateSignal={handleGenerateSignal}
       />
 
       <EffectsModal
@@ -848,6 +1066,8 @@ export function AudioStudioApp() {
       <SilenceModal
         isOpen={silenceModalOpen}
         onClose={() => setSilenceModalOpen(false)}
+        selection={selection}
+        currentTime={currentTime}
         onInsertSilence={handleInsertSilence}
       />
 

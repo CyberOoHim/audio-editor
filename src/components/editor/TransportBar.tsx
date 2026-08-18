@@ -10,9 +10,10 @@ import {
   ZoomOut,
   Maximize2,
   Volume2,
-  VolumeX
+  VolumeX,
+  Gauge
 } from 'lucide-react';
-import type { PlayState } from '../../types/audio';
+import type { PlayState, TimeFormat } from '../../types/audio';
 
 export interface TransportBarProps {
   playState: PlayState;
@@ -21,6 +22,9 @@ export interface TransportBarProps {
   canUndo: boolean;
   canRedo: boolean;
   volume: number;
+  playbackRate?: number;
+  sampleRate?: number;
+  timeFormat?: TimeFormat;
   onPlay: () => void;
   onPause: () => void;
   onStop: () => void;
@@ -31,6 +35,8 @@ export interface TransportBarProps {
   onZoomOut: () => void;
   onZoomFit: () => void;
   onVolumeChange: (val: number) => void;
+  onPlaybackRateChange?: (rate: number) => void;
+  onToggleTimeFormat?: () => void;
 }
 
 export const TransportBar: React.FC<TransportBarProps> = ({
@@ -40,6 +46,9 @@ export const TransportBar: React.FC<TransportBarProps> = ({
   canUndo,
   canRedo,
   volume,
+  playbackRate = 1.0,
+  sampleRate = 44100,
+  timeFormat = 'hms',
   onPlay,
   onPause,
   onStop,
@@ -49,9 +58,17 @@ export const TransportBar: React.FC<TransportBarProps> = ({
   onZoomIn,
   onZoomOut,
   onZoomFit,
-  onVolumeChange
+  onVolumeChange,
+  onPlaybackRateChange,
+  onToggleTimeFormat
 }) => {
   const formatTime = (sec: number): string => {
+    if (timeFormat === 'seconds') {
+      return `${sec.toFixed(2)}s`;
+    }
+    if (timeFormat === 'samples') {
+      return `${Math.floor(sec * sampleRate).toLocaleString()} spl`;
+    }
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     const ms = Math.floor((sec % 1) * 1000);
@@ -60,12 +77,25 @@ export const TransportBar: React.FC<TransportBarProps> = ({
 
   const isPlaying = playState === 'playing';
 
+  const speedOptions = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+  const handleCycleSpeed = () => {
+    if (!onPlaybackRateChange) return;
+    const currIdx = speedOptions.findIndex((s) => Math.abs(s - playbackRate) < 0.05);
+    const nextIdx = currIdx === -1 || currIdx === speedOptions.length - 1 ? 0 : currIdx + 1;
+    onPlaybackRateChange(speedOptions[nextIdx]);
+  };
+
   return (
     <div className="transport-bar">
       {/* Desktop Inline Layout */}
       <div className="transport-desktop-wrap">
         {/* Left: Timecode Display */}
-        <div className="time-display">
+        <div
+          className="time-display"
+          onClick={onToggleTimeFormat}
+          style={{ cursor: 'pointer' }}
+          title="Click to toggle Timecode / Seconds / Samples"
+        >
           <span>{formatTime(currentTime)}</span>
           <span className="time-total">/ {formatTime(duration)}</span>
         </div>
@@ -125,8 +155,28 @@ export const TransportBar: React.FC<TransportBarProps> = ({
           </button>
         </div>
 
-        {/* Right: Zoom & Volume */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {/* Right: Speed, Zoom & Volume */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {/* Playback Speed Pill */}
+          {onPlaybackRateChange && (
+            <button
+              className="btn btn-secondary btn-sm mono"
+              onClick={handleCycleSpeed}
+              style={{
+                height: 26,
+                padding: '0 8px',
+                fontSize: 11,
+                fontWeight: 600,
+                color: playbackRate !== 1.0 ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                border: playbackRate !== 1.0 ? '1px solid var(--accent-cyan)' : undefined
+              }}
+              title="Click to cycle playback speed (0.5x, 0.75x, 1x, 1.25x, 1.5x, 2x)"
+            >
+              <Gauge size={12} />
+              <span>{playbackRate.toFixed(2).replace(/\.00$/, '')}x</span>
+            </button>
+          )}
+
           {/* Zoom */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <button className="btn btn-ghost btn-icon-sm" onClick={onZoomOut} title="Zoom Out">
@@ -141,7 +191,7 @@ export const TransportBar: React.FC<TransportBarProps> = ({
           </div>
 
           {/* Volume */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 100 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 95 }}>
             <button
               className="btn btn-ghost btn-icon-sm"
               onClick={() => onVolumeChange(volume > 0 ? 0 : 1)}
@@ -157,23 +207,43 @@ export const TransportBar: React.FC<TransportBarProps> = ({
               step={0.05}
               value={volume}
               onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-              style={{ width: 70 }}
+              style={{ width: 65 }}
               title={`Volume: ${Math.round(volume * 100)}%`}
             />
           </div>
         </div>
       </div>
 
-      {/* Mobile 2-Row Layout (Zero Clipping on Android Vertical Mode) */}
+      {/* Mobile 2-Row Layout */}
       <div className="transport-mobile-wrap">
-        {/* Row 1: Timecode + Zoom + Volume */}
+        {/* Row 1: Timecode + Speed + Zoom + Volume */}
         <div className="transport-mobile-row">
-          <div className="time-display">
+          <div
+            className="time-display"
+            onClick={onToggleTimeFormat}
+            style={{ cursor: 'pointer' }}
+          >
             <span>{formatTime(currentTime)}</span>
             <span className="time-total">/ {formatTime(duration)}</span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {onPlaybackRateChange && (
+              <button
+                className="btn btn-ghost btn-sm mono"
+                onClick={handleCycleSpeed}
+                style={{
+                  height: 24,
+                  padding: '0 6px',
+                  fontSize: 11,
+                  color: playbackRate !== 1.0 ? 'var(--accent-cyan)' : 'var(--text-secondary)'
+                }}
+                title="Playback Speed"
+              >
+                {playbackRate.toFixed(2).replace(/\.00$/, '')}x
+              </button>
+            )}
+
             <button className="btn btn-ghost btn-icon-sm" onClick={onZoomOut} title="Zoom Out">
               <ZoomOut size={14} />
             </button>
