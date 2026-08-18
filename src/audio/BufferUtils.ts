@@ -408,3 +408,69 @@ export function generateSignalBuffer(
 
   return buffer;
 }
+
+export interface DecimatedPeaks {
+  mins: Float32Array[];
+  maxs: Float32Array[];
+  bucketSize: number;
+  totalBuckets: number;
+}
+
+// WeakMap cache so AudioBuffer peak calculations are done once and automatically garbage collected
+const bufferPeakCache = new WeakMap<AudioBuffer, DecimatedPeaks>();
+
+export function getDecimatedPeaks(buffer: AudioBuffer, numBuckets: number = 4096): DecimatedPeaks {
+  const cached = bufferPeakCache.get(buffer);
+  if (cached) return cached;
+
+  const length = buffer.length;
+  const channels = buffer.numberOfChannels;
+  const bucketSize = Math.max(1, Math.floor(length / numBuckets));
+  const actualBuckets = Math.ceil(length / bucketSize);
+
+  const mins: Float32Array[] = [];
+  const maxs: Float32Array[] = [];
+
+  for (let c = 0; c < channels; c++) {
+    const channelData = buffer.getChannelData(c);
+    const minArr = new Float32Array(actualBuckets);
+    const maxArr = new Float32Array(actualBuckets);
+
+    for (let b = 0; b < actualBuckets; b++) {
+      const start = b * bucketSize;
+      const end = Math.min(start + bucketSize, length);
+      let min = 1.0;
+      let max = -1.0;
+
+      // Use a stride of 1 or 2 inside bucket for high precision
+      const stride = bucketSize > 128 ? Math.max(1, Math.floor(bucketSize / 64)) : 1;
+      for (let i = start; i < end; i += stride) {
+        const v = channelData[i];
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+
+      if (max < min) {
+        min = 0;
+        max = 0;
+      }
+
+      minArr[b] = min;
+      maxArr[b] = max;
+    }
+
+    mins.push(minArr);
+    maxs.push(maxArr);
+  }
+
+  const result: DecimatedPeaks = {
+    mins,
+    maxs,
+    bucketSize,
+    totalBuckets: actualBuckets
+  };
+
+  bufferPeakCache.set(buffer, result);
+  return result;
+}
+

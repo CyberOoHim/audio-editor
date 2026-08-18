@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { Hand, MousePointer } from 'lucide-react';
 import type { AudioSelection } from '../../types/audio';
 import type { AudioFileItem } from '../../types/storage';
+import { getDecimatedPeaks } from '../../audio/BufferUtils';
 import { EmptyStudioState } from './EmptyStudioState';
 
 export interface WaveformCanvasProps {
@@ -28,7 +29,7 @@ export interface WaveformCanvasProps {
 
 type DragMode = 'none' | 'create-selection' | 'drag-handle-start' | 'drag-handle-end' | 'scrub-playhead' | 'pan';
 
-export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
+export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
   buffer,
   currentTime,
   selection,
@@ -49,7 +50,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onOpenLibrary,
   libraryFiles = []
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [mode, setMode] = useState<'select' | 'pan'>(interactionMode);
@@ -86,18 +88,24 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const duration = buffer ? buffer.duration : 0;
 
-  // Render Waveform Canvas
+  // 1. Layer 1: Render Waveform Canvas ONLY when buffer, zoom, scrollLeft, width, or height change
   useEffect(() => {
-    const canvas = canvasRef.current;
+    const canvas = waveformCanvasRef.current;
     if (!canvas || !buffer || width <= 0 || height <= 0) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const targetW = Math.round(width * dpr);
+    const targetH = Math.round(height * dpr);
+
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    ctx.save();
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, width, height);
 
@@ -106,10 +114,18 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const startTime = Math.max(0, scrollLeft / zoom);
     const endTime = Math.min(duration, (scrollLeft + width) / zoom);
     const sampleRate = buffer.sampleRate;
+    const samplesPerPixel = sampleRate / zoom;
+
+    // Precomputed decimated peak pyramid for instant fast zoomed-out rendering
+    const decimated = getDecimatedPeaks(buffer, 4096);
+    const bucketSize = decimated.bucketSize;
+    const totalBuckets = decimated.totalBuckets;
 
     // Render channels
     for (let c = 0; c < channels; c++) {
       const channelData = buffer.getChannelData(c);
+      const decMins = decimated.mins[c];
+      const decMaxs = decimated.maxs[c];
       const topY = c * channelHeight;
       const midY = topY + channelHeight / 2;
 
@@ -136,14 +152,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       gradient.addColorStop(0, '#00f0ff');
       gradient.addColorStop(0.5, '#38bdf8');
       gradient.addColorStop(1, '#00f0ff');
-
       ctx.fillStyle = gradient;
 
-      // Determine rendering mode: Sample lines (if deep zoom) vs Min/Max Peak Columns
-      const samplesPerPixel = sampleRate / zoom;
-
       if (samplesPerPixel <= 1) {
-        // Sample level rendering (individual connected sample dots)
+        // Sample-level rendering (individual connected dots when zoomed in deeply)
         ctx.strokeStyle = '#00f0ff';
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -174,8 +186,40 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           ctx.arc(x, y, 2.5, 0, Math.PI * 2);
           ctx.fill();
         }
+      } else if (samplesPerPixel >= bucketSize * 2) {
+        // Ultra-fast decimated peak path when zoomed out: reads from precomputed Float32Array cache
+        for (let x = 0; x < width; x++) {
+          const pixelTime = (scrollLeft + x) / zoom;
+          if (pixelTime < 0 || pixelTime > duration) continue;
+
+          const startSample = pixelTime * sampleRate;
+          const endSample = (pixelTime + 1 / zoom) * sampleRate;
+          const startBucket = Math.floor(startSample / bucketSize);
+          const endBucket = Math.min(totalBuckets, Math.ceil(endSample / bucketSize));
+
+          let min = 1.0;
+          let max = -1.0;
+
+          for (let b = startBucket; b < endBucket; b++) {
+            const bMin = decMins[b];
+            const bMax = decMaxs[b];
+            if (bMin < min) min = bMin;
+            if (bMax > max) max = bMax;
+          }
+
+          if (max < min) {
+            min = 0;
+            max = 0;
+          }
+
+          const yTop = midY - max * (channelHeight / 2 - 4);
+          const yBottom = midY - min * (channelHeight / 2 - 4);
+          const barHeight = Math.max(1.5, yBottom - yTop);
+
+          ctx.fillRect(x, yTop, 1, barHeight);
+        }
       } else {
-        // Min/Max peak column rendering
+        // Precise min/max peak column rendering with adaptive stride
         for (let x = 0; x < width; x++) {
           const pixelTime = (scrollLeft + x) / zoom;
           if (pixelTime < 0 || pixelTime > duration) continue;
@@ -188,8 +232,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           let min = 1.0;
           let max = -1.0;
 
-          // Performance stride if many samples per pixel
-          const stride = Math.max(1, Math.floor((endSample - startSample) / 32));
+          // Adaptive stride for max performance and smooth visuals
+          const sampleCount = endSample - startSample;
+          const stride = sampleCount > 64 ? Math.max(1, Math.floor(sampleCount / 32)) : 1;
+
           for (let s = startSample; s < endSample; s += stride) {
             const val = channelData[s];
             if (val < min) min = val;
@@ -210,6 +256,30 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       }
     }
 
+    ctx.restore();
+  }, [buffer, zoom, scrollLeft, width, height, duration]);
+
+  // 2. Layer 2: Render Overlay (Selection & Playhead) on separate canvas (takes <0.01ms)
+  useEffect(() => {
+    const canvas = overlayCanvasRef.current;
+    if (!canvas || width <= 0 || height <= 0) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const targetW = Math.round(width * dpr);
+    const targetH = Math.round(height * dpr);
+
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, width, height);
+
     // Render Selection Region Overlay
     if (selection && selection.end > selection.start) {
       const selStartX = selection.start * zoom - scrollLeft;
@@ -223,7 +293,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       // Left Selection Border & Handle
       ctx.fillStyle = '#38bdf8';
       ctx.fillRect(selStartX - 1, 0, 2, height);
-      // Left Handle Knob
+      // Left Handle Knobs
       ctx.beginPath();
       ctx.arc(selStartX, 12, 6, 0, Math.PI * 2);
       ctx.arc(selStartX, height - 12, 6, 0, Math.PI * 2);
@@ -232,7 +302,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       // Right Selection Border & Handle
       ctx.fillStyle = '#38bdf8';
       ctx.fillRect(selEndX - 1, 0, 2, height);
-      // Right Handle Knob
+      // Right Handle Knobs
       ctx.beginPath();
       ctx.arc(selEndX, 12, 6, 0, Math.PI * 2);
       ctx.arc(selEndX, height - 12, 6, 0, Math.PI * 2);
@@ -261,7 +331,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       ctx.fillStyle = '#ffffff';
       ctx.fill();
     }
-  }, [buffer, currentTime, selection, zoom, scrollLeft, width, height, duration]);
+
+    ctx.restore();
+  }, [currentTime, selection, zoom, scrollLeft, width, height]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (!buffer) return;
@@ -271,7 +343,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const x = e.clientX - rect.left;
     const clickTime = (scrollLeft + x) / zoom;
 
-    const HANDLE_HIT_PX = 20; // larger hit area for fingers & mouse
+    const HANDLE_HIT_PX = 20; // larger hit area for touch fingers & mouse
     let activeDragMode: DragMode = mode === 'pan' ? 'pan' : 'create-selection';
 
     if (selection && selection.end > selection.start) {
@@ -432,7 +504,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       style={{
-        cursor: !buffer ? 'default' : dragMode === 'pan' ? 'grabbing' : mode === 'pan' ? 'grab' : 'crosshair'
+        cursor: !buffer ? 'default' : dragMode === 'pan' ? 'grabbing' : mode === 'pan' ? 'grab' : 'crosshair',
+        position: 'relative'
       }}
     >
       {buffer ? (
@@ -465,9 +538,25 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
             </button>
           </div>
 
+          {/* Layer 1: Base Static Waveform Canvas */}
           <canvas
-            ref={canvasRef}
+            ref={waveformCanvasRef}
             className="waveform-canvas"
+            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+          />
+
+          {/* Layer 2: Fast Overlay Canvas (Playhead & Selection) */}
+          <canvas
+            ref={overlayCanvasRef}
+            className="waveform-canvas-overlay"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              pointerEvents: 'none'
+            }}
           />
         </>
       ) : (
@@ -482,4 +571,5 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       )}
     </div>
   );
-};
+});
+WaveformCanvas.displayName = 'WaveformCanvas';

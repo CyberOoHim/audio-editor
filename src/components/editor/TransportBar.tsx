@@ -39,7 +39,7 @@ export interface TransportBarProps {
   onToggleTimeFormat?: () => void;
 }
 
-export const TransportBar: React.FC<TransportBarProps> = ({
+export const TransportBar: React.FC<TransportBarProps> = React.memo(({
   playState,
   currentTime,
   duration,
@@ -320,4 +320,5 @@ export const TransportBar: React.FC<TransportBarProps> = ({
       </div>
     </div>
   );
-};
+});
+TransportBar.displayName = 'TransportBar';

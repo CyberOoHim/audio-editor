@@ -174,14 +174,19 @@ export function AudioStudioApp() {
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
   }, []);
 
-  // Update Canvas Dimensions on Resize using ResizeObserver
+  // Update Canvas Dimensions on Resize using ResizeObserver with integer change threshold
   useEffect(() => {
     if (!canvasContainerRef.current) return;
     const container = canvasContainerRef.current;
 
     const updateFromRect = (width: number, height: number) => {
       if (width > 0 && height > 0) {
-        setCanvasDimensions({ width: Math.round(width), height: Math.round(height) });
+        const roundedW = Math.round(width);
+        const roundedH = Math.round(height);
+        setCanvasDimensions((prev) => {
+          if (prev.width === roundedW && prev.height === roundedH) return prev;
+          return { width: roundedW, height: roundedH };
+        });
       }
     };
 
@@ -204,7 +209,7 @@ export function AudioStudioApp() {
     setStorageUsage(usage);
   }, []);
 
-  const loadFileToEditor = async (fileItem: AudioFileItem) => {
+  const loadFileToEditor = useCallback(async (fileItem: AudioFileItem) => {
     try {
       const audioCtx = audioEngine.getContext();
       const arrayBuffer = await fileItem.blob.arrayBuffer();
@@ -231,7 +236,7 @@ export function AudioStudioApp() {
       console.error(err);
       showToast('Error decoding audio file.', 'error');
     }
-  };
+  }, [canvasDimensions.width, showToast]);
 
   const loadData = useCallback(async () => {
     await initDatabase();
@@ -252,10 +257,16 @@ export function AudioStudioApp() {
     loadData();
   }, [loadData]);
 
-  // Audio Engine Subscriptions
+  // Audio Engine Subscriptions with throttled React state
   useEffect(() => {
+    let lastTimeUpdate = 0;
     const unsubTime = audioEngine.onTimeUpdate((time) => {
-      setCurrentTime(time);
+      const now = performance.now();
+      // Throttle React state updates to ~30fps for UI labels, while canvases render smoothly
+      if (now - lastTimeUpdate >= 32 || time === 0) {
+        lastTimeUpdate = now;
+        setCurrentTime(time);
+      }
     });
 
     const unsubState = audioEngine.onStateChange((state) => {

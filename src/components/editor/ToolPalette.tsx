@@ -38,7 +38,7 @@ export interface ToolPaletteProps {
   onOpenGenerator: () => void;
 }
 
-export const ToolPalette: React.FC<ToolPaletteProps> = ({
+export const ToolPalette: React.FC<ToolPaletteProps> = React.memo(({
   hasSelection,
   hasBuffer,
   fadeInDuration,
@@ -215,4 +215,5 @@ export const ToolPalette: React.FC<ToolPaletteProps> = ({
       </div>
     </div>
   );
-};
+});
+ToolPalette.displayName = 'ToolPalette';

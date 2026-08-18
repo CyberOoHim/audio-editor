@@ -17,7 +17,7 @@ export interface SelectionInfoProps {
   onFadeSelection?: () => void;
 }
 
-export const SelectionInfo: React.FC<SelectionInfoProps> = ({
+export const SelectionInfo: React.FC<SelectionInfoProps> = React.memo(({
   selection,
   sampleRate = 44100,
   timeFormat = 'hms',
@@ -138,4 +138,6 @@ export const SelectionInfo: React.FC<SelectionInfoProps> = ({
       </div>
     </div>
   );
-};
+});
+SelectionInfo.displayName = 'SelectionInfo';
+

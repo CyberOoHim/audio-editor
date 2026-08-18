@@ -23,7 +23,7 @@ export interface FileManagerProps {
   onCloseSidebar?: () => void;
 }
 
-export const FileManager: React.FC<FileManagerProps> = ({
+export const FileManager: React.FC<FileManagerProps> = React.memo(({
   folders,
   files,
   activeFileId,
@@ -166,4 +166,5 @@ export const FileManager: React.FC<FileManagerProps> = ({
       />
     </div>
   );
-};
+});
+FileManager.displayName = 'FileManager';

@@ -8,7 +8,7 @@ export interface TimeRulerProps {
   height?: number;
 }
 
-export const TimeRuler: React.FC<TimeRulerProps> = ({
+export const TimeRuler: React.FC<TimeRulerProps> = React.memo(({
   duration,
   zoom,
   scrollLeft,
@@ -21,13 +21,19 @@ export const TimeRuler: React.FC<TimeRulerProps> = ({
     const canvas = canvasRef.current;
     if (!canvas || width <= 0) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const targetW = Math.round(width * dpr);
+    const targetH = Math.round(height * dpr);
+
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    ctx.save();
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, width, height);
 
@@ -40,7 +46,6 @@ export const TimeRuler: React.FC<TimeRulerProps> = ({
     ctx.fillRect(0, height - 1, width, 1);
 
     // Calculate time interval based on zoom
-    // Determine grid step: e.g. 0.01s, 0.05s, 0.1s, 0.5s, 1s, 2s, 5s, 10s, 30s, 60s
     const targetPx = 80; // approximate pixels between major tick marks
     const roughSec = targetPx / zoom;
     const intervals = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
@@ -95,6 +100,8 @@ export const TimeRuler: React.FC<TimeRulerProps> = ({
         ctx.fillRect(x, height - 4, 1, 4);
       }
     }
+
+    ctx.restore();
   }, [duration, zoom, scrollLeft, width, height]);
 
   return (
@@ -109,4 +116,5 @@ export const TimeRuler: React.FC<TimeRulerProps> = ({
       />
     </div>
   );
-};
+});
+TimeRuler.displayName = 'TimeRuler';
