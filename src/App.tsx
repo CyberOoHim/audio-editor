@@ -1152,6 +1152,7 @@ export function AudioStudioApp() {
         onClose={() => setExportModalOpen(false)}
         selection={selection}
         currentFileName={currentFileName}
+        isEdited={canUndo}
         onExport={handleExport}
       />
 

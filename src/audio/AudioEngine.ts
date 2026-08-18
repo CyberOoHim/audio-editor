@@ -67,11 +67,7 @@ export class AudioEngine {
     this.startOffset = 0;
     
     const ctx = this.getContext();
-    if (historyDescription) {
-      this.history.push(historyDescription, buffer, ctx);
-    } else {
-      this.history.reset(buffer, ctx, 'Loaded Audio');
-    }
+    this.history.reset(buffer, ctx, historyDescription || 'Loaded Audio');
 
     this.notifyBufferListeners();
     this.notifyTimeListeners(0);

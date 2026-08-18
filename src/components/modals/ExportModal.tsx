@@ -1,14 +1,16 @@
-import React, { useState, useMemo } from 'react';
-import { Download, Radio, Loader2, Check, Info } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Download, Radio, Loader2, Check, Info, RotateCw } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { useToast } from '../common/Toast';
 import type { ExportFormat, ExportSettings, AudioSelection } from '../../types/audio';
+import { generateDefaultExportFileName } from '../../audio/filenameUtils';
 
 export interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
   selection: AudioSelection | null;
   currentFileName: string;
+  isEdited?: boolean;
   onExport: (settings: ExportSettings, destination: 'download' | 'library') => Promise<void>;
 }
 
@@ -190,6 +192,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   onClose,
   selection,
   currentFileName,
+  isEdited = false,
   onExport
 }) => {
   const { showToast } = useToast();
@@ -207,9 +210,26 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const [sampleRate, setSampleRate] = useState<number>(44100);
   const [channels, setChannels] = useState<1 | 2>(2);
   const [exportScope, setExportScope] = useState<'all' | 'selection'>(hasSelection ? 'selection' : 'all');
-  const [fileName, setFileName] = useState(currentFileName || 'exported_audio');
+  const [fileName, setFileName] = useState<string>(() =>
+    generateDefaultExportFileName({ sourceFileName: currentFileName, isEdited })
+  );
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
+
+  // Re-generate default export filename and reset progress when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setFileName(generateDefaultExportFileName({ sourceFileName: currentFileName, isEdited }));
+      setIsExporting(false);
+      setProgress(0);
+    }
+  }, [isOpen, currentFileName, isEdited]);
+
+  const handleRegenerateFileName = () => {
+    const newName = generateDefaultExportFileName({ sourceFileName: currentFileName, isEdited });
+    setFileName(newName);
+    showToast('Updated default filename (Taipei time)', 'info');
+  };
 
   const selectedFormatOption = useMemo(
     () => AVAILABLE_FORMATS.find((f) => f.id === format) || AVAILABLE_FORMATS[0],
@@ -315,7 +335,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               Final: {fileName.trim() || 'audio'}{selectedFormatOption.ext}
             </span>
           </label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <input
               type="text"
               className="form-input"
@@ -324,6 +344,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               placeholder="audio_export"
               style={{ flex: 1 }}
             />
+            <button
+              type="button"
+              className="btn btn-secondary btn-icon-sm"
+              onClick={handleRegenerateFileName}
+              title="Reset to default filename with current Taipei timestamp"
+              style={{ flexShrink: 0, padding: '7px 8px' }}
+            >
+              <RotateCw size={13} />
+            </button>
             <div
               style={{
                 padding: '7px 10px',
@@ -333,7 +362,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 fontFamily: 'var(--font-mono)',
                 fontSize: 'var(--font-sm)',
                 fontWeight: 600,
-                color: 'var(--accent-cyan)'
+                color: 'var(--accent-cyan)',
+                flexShrink: 0
               }}
             >
               {selectedFormatOption.ext}
