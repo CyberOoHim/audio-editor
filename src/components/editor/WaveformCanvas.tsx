@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Hand, MousePointer } from 'lucide-react';
+import { Hand, MousePointer, Music } from 'lucide-react';
 import type { AudioSelection } from '../../types/audio';
 
 export interface WaveformCanvasProps {
@@ -418,41 +418,84 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       style={{
-        cursor: dragMode === 'pan' ? 'grabbing' : mode === 'pan' ? 'grab' : 'crosshair'
+        cursor: !buffer ? 'default' : dragMode === 'pan' ? 'grabbing' : mode === 'pan' ? 'grab' : 'crosshair'
       }}
     >
-      {/* Floating Mode Dock for instant toggle between Scroll/Pan & Select */}
-      <div className="touch-mode-dock">
-        <button
-          type="button"
-          className={`touch-mode-btn ${mode === 'pan' ? 'active' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleModeChange('pan');
-          }}
-          title="Pan / Scroll Mode: Swipe to scroll waveform"
-        >
-          <Hand size={12} />
-          <span>Pan</span>
-        </button>
-        <button
-          type="button"
-          className={`touch-mode-btn ${mode === 'select' ? 'active' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleModeChange('select');
-          }}
-          title="Select Mode: Drag to highlight audio region"
-        >
-          <MousePointer size={12} />
-          <span>Select</span>
-        </button>
-      </div>
+      {buffer ? (
+        <>
+          {/* Floating Mode Dock for instant toggle between Scroll/Pan & Select */}
+          <div className="touch-mode-dock">
+            <button
+              type="button"
+              className={`touch-mode-btn ${mode === 'pan' ? 'active' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleModeChange('pan');
+              }}
+              title="Pan / Scroll Mode: Swipe to scroll waveform"
+            >
+              <Hand size={12} />
+              <span>Pan</span>
+            </button>
+            <button
+              type="button"
+              className={`touch-mode-btn ${mode === 'select' ? 'active' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleModeChange('select');
+              }}
+              title="Select Mode: Drag to highlight audio region"
+            >
+              <MousePointer size={12} />
+              <span>Select</span>
+            </button>
+          </div>
 
-      <canvas
-        ref={canvasRef}
-        className="waveform-canvas"
-      />
+          <canvas
+            ref={canvasRef}
+            className="waveform-canvas"
+          />
+        </>
+      ) : (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            padding: 24,
+            textAlign: 'center',
+            userSelect: 'none'
+          }}
+        >
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: '50%',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-medium)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--text-muted)'
+            }}
+          >
+            <Music size={26} />
+          </div>
+          <div>
+            <div style={{ fontSize: 'var(--font-lg)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
+              No Audio File Selected
+            </div>
+            <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', maxWidth: 380, lineHeight: 1.5 }}>
+              Select a file from the sidebar Library, drag &amp; drop an audio file here, or record a new sample to start editing.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

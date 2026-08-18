@@ -73,6 +73,14 @@ export class AudioEngine {
     this.notifyTimeListeners(0);
   }
 
+  public clearBuffer(): void {
+    this.stop();
+    this.currentBuffer = null;
+    this.history = new HistoryManager(25);
+    this.notifyBufferListeners();
+    this.notifyTimeListeners(0);
+  }
+
   public setBufferDirectly(buffer: AudioBuffer, description: string): void {
     this.stop();
     this.currentBuffer = buffer;

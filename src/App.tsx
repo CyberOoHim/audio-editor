@@ -77,7 +77,7 @@ export function AudioStudioApp() {
 
   // Editor and Playback State
   const [currentBuffer, setCurrentBuffer] = useState<AudioBuffer | null>(null);
-  const [currentFileName, setCurrentFileName] = useState<string>('Audio Track');
+  const [currentFileName, setCurrentFileName] = useState<string>('No file selected');
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [playState, setPlayState] = useState<PlayState>('idle');
   const [selection, setSelection] = useState<AudioSelection | null>(null);
@@ -244,16 +244,11 @@ export function AudioStudioApp() {
     }
     setFiles(loadedFiles);
     await refreshStorage();
-
-    // Automatically load first audio file
-    if (loadedFiles.length > 0 && !currentBuffer) {
-      loadFileToEditor(loadedFiles[0]);
-    }
-  }, [refreshStorage, currentBuffer]);
+  }, [refreshStorage]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   // Audio Engine Subscriptions
   useEffect(() => {
@@ -291,6 +286,7 @@ export function AudioStudioApp() {
 
       if (e.code === 'Space') {
         e.preventDefault();
+        if (!currentBuffer) return;
         if (playState === 'playing') {
           audioEngine.pause();
         } else {
@@ -321,10 +317,11 @@ export function AudioStudioApp() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [playState, currentTime, selection]);
+  }, [playState, currentTime, selection, currentBuffer]);
 
   // Playback Controls
   const handlePlay = () => {
+    if (!currentBuffer) return;
     audioEngine.play(currentTime, selection || undefined);
   };
 
@@ -871,6 +868,9 @@ export function AudioStudioApp() {
     setFiles(updated);
     if (activeFileId === id) {
       setActiveFileId(null);
+      setCurrentFileName('No file selected');
+      audioEngine.clearBuffer();
+      setSelection(null);
     }
     await refreshStorage();
     showToast('File deleted', 'info');
