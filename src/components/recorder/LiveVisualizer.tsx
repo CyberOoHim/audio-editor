@@ -19,22 +19,39 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     const canvas = canvasRef.current;
     if (!canvas || !analyser) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.25);
+    const targetW = Math.round(width * dpr);
+    const targetH = Math.round(height * dpr);
+
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.scale(dpr, dpr);
-
     let animId: number;
+    let lastDraw = 0;
+    const minDrawInterval = 1000 / 30; // 30 FPS throttle
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
 
-    const draw = () => {
+    // Pre-create gradient for frequency bars
+    const freqGradient = ctx.createLinearGradient(0, height, 0, 0);
+    freqGradient.addColorStop(0, '#0284c7');
+    freqGradient.addColorStop(1, '#00f0ff');
+
+    const draw = (timestamp: number) => {
       animId = requestAnimationFrame(draw);
 
+      if (timestamp - lastDraw < minDrawInterval) {
+        return;
+      }
+      lastDraw = timestamp;
+
+      ctx.save();
+      ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, width, height);
 
       // Background
@@ -73,26 +90,23 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
       } else {
         analyser.getByteFrequencyData(dataArray);
 
+        ctx.fillStyle = freqGradient;
         const barWidth = (width / bufferLength) * 2.5;
         let x = 0;
 
         for (let i = 0; i < bufferLength; i++) {
           const barHeight = (dataArray[i] / 255) * height;
-
-          const gradient = ctx.createLinearGradient(0, height, 0, height - barHeight);
-          gradient.addColorStop(0, '#0284c7');
-          gradient.addColorStop(1, '#00f0ff');
-
-          ctx.fillStyle = gradient;
-          ctx.fillRect(x, height - barHeight, barWidth - 1, barHeight);
+          ctx.fillRect(x, height - barHeight, Math.max(1, barWidth - 1), barHeight);
 
           x += barWidth;
           if (x >= width) break;
         }
       }
+
+      ctx.restore();
     };
 
-    draw();
+    animId = requestAnimationFrame(draw);
 
     return () => {
       cancelAnimationFrame(animId);

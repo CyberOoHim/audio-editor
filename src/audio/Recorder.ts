@@ -219,33 +219,38 @@ export class StudioRecorder {
   private startMetricsLoop(): void {
     this.stopMetricsLoop();
     const dataArray = new Uint8Array(256);
+    let lastUpdate = 0;
+    const minInterval = 1000 / 30; // 30 FPS cap for VU meter calculations
 
-    const update = () => {
+    const update = (timestamp: number) => {
       if (this.isRecording) {
-        let peak = 0;
-        let rms = 0;
+        if (timestamp - lastUpdate >= minInterval) {
+          lastUpdate = timestamp;
+          let peak = 0;
+          let rms = 0;
 
-        if (this.analyserNode) {
-          this.analyserNode.getByteTimeDomainData(dataArray);
-          let sumSquares = 0;
-          for (let i = 0; i < dataArray.length; i++) {
-            const norm = (dataArray[i] - 128) / 128;
-            const absNorm = Math.abs(norm);
-            if (absNorm > peak) peak = absNorm;
-            sumSquares += norm * norm;
+          if (this.analyserNode) {
+            this.analyserNode.getByteTimeDomainData(dataArray);
+            let sumSquares = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+              const norm = (dataArray[i] - 128) / 128;
+              const absNorm = Math.abs(norm);
+              if (absNorm > peak) peak = absNorm;
+              sumSquares += norm * norm;
+            }
+            rms = Math.sqrt(sumSquares / dataArray.length);
           }
-          rms = Math.sqrt(sumSquares / dataArray.length);
+
+          const metrics: RecorderMetrics = {
+            duration: this.getDuration(),
+            peakL: peak,
+            peakR: peak * 0.95, // simulated stereo meter
+            rmsL: rms,
+            rmsR: rms * 0.95
+          };
+
+          this.metricsListeners.forEach(fn => fn(metrics));
         }
-
-        const metrics: RecorderMetrics = {
-          duration: this.getDuration(),
-          peakL: peak,
-          peakR: peak * 0.95, // simulated stereo meter
-          rmsL: rms,
-          rmsR: rms * 0.95
-        };
-
-        this.metricsListeners.forEach(fn => fn(metrics));
         this.animFrameId = requestAnimationFrame(update);
       }
     };

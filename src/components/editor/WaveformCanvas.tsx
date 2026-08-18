@@ -93,7 +93,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
     const canvas = waveformCanvasRef.current;
     if (!canvas || !buffer || width <= 0 || height <= 0) return;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.25);
     const targetW = Math.round(width * dpr);
     const targetH = Math.round(height * dpr);
 
@@ -264,7 +264,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
     const canvas = overlayCanvasRef.current;
     if (!canvas || width <= 0 || height <= 0) return;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.25);
     const targetW = Math.round(width * dpr);
     const targetH = Math.round(height * dpr);
 

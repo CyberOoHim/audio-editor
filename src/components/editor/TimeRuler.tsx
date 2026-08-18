@@ -21,7 +21,7 @@ export const TimeRuler: React.FC<TimeRulerProps> = React.memo(({
     const canvas = canvasRef.current;
     if (!canvas || width <= 0) return;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.25);
     const targetW = Math.round(width * dpr);
     const targetH = Math.round(height * dpr);
 

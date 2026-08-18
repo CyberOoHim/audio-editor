@@ -299,10 +299,16 @@ export class AudioEngine {
 
   private startProgressTicker(): void {
     this.stopProgressTicker();
-    const tick = () => {
+    let lastTickTime = 0;
+    const minTickInterval = 1000 / 35; // Cap to ~35 FPS to prevent battery drain and overheating on 120Hz iPads
+
+    const tick = (timestamp: number) => {
       if (this.playState === 'playing') {
-        const time = this.getCurrentTime();
-        this.notifyTimeListeners(time);
+        if (timestamp - lastTickTime >= minTickInterval) {
+          lastTickTime = timestamp;
+          const time = this.getCurrentTime();
+          this.notifyTimeListeners(time);
+        }
         this.animFrameId = requestAnimationFrame(tick);
       }
     };
