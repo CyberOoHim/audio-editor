@@ -1,0 +1,19 @@
+{
+  "name": "AudioCraft Studio - Web Audio Editor",
+  "short_name": "AudioCraft",
+  "description": "Studio-grade Web Audio Editor, Recorder, and File Manager running 100% client-side with full offline support.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#080a0f",
+  "theme_color": "#0f141f",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "48x48 72x72 96x96 128x128 192x192 256x256 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "music", "utilities"]
+}

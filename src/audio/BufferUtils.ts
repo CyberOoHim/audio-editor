@@ -1,0 +1,282 @@
+import type { FadeCurve } from '../types/audio';
+
+export function createEmptyBuffer(
+  ctx: BaseAudioContext,
+  numberOfChannels: number,
+  lengthInSamples: number,
+  sampleRate: number
+): AudioBuffer {
+  const safeLength = Math.max(1, Math.floor(lengthInSamples));
+  return ctx.createBuffer(numberOfChannels, safeLength, sampleRate);
+}
+
+export function cloneBuffer(ctx: BaseAudioContext, source: AudioBuffer): AudioBuffer {
+  const target = ctx.createBuffer(
+    source.numberOfChannels,
+    source.length,
+    source.sampleRate
+  );
+  for (let i = 0; i < source.numberOfChannels; i++) {
+    target.getChannelData(i).set(source.getChannelData(i));
+  }
+  return target;
+}
+
+export function sliceBuffer(
+  ctx: BaseAudioContext,
+  source: AudioBuffer,
+  startSec: number,
+  endSec: number
+): AudioBuffer {
+  const sampleRate = source.sampleRate;
+  const startSample = Math.max(0, Math.floor(startSec * sampleRate));
+  const endSample = Math.min(source.length, Math.floor(endSec * sampleRate));
+  const newLength = Math.max(1, endSample - startSample);
+
+  const target = ctx.createBuffer(source.numberOfChannels, newLength, sampleRate);
+  for (let c = 0; c < source.numberOfChannels; c++) {
+    const srcData = source.getChannelData(c);
+    const dstData = target.getChannelData(c);
+    dstData.set(srcData.subarray(startSample, endSample));
+  }
+  return target;
+}
+
+export function deleteRegion(
+  ctx: BaseAudioContext,
+  source: AudioBuffer,
+  startSec: number,
+  endSec: number
+): AudioBuffer {
+  const sampleRate = source.sampleRate;
+  const startSample = Math.max(0, Math.floor(startSec * sampleRate));
+  const endSample = Math.min(source.length, Math.floor(endSec * sampleRate));
+  const removeLength = endSample - startSample;
+  
+  if (removeLength <= 0) return cloneBuffer(ctx, source);
+  const newLength = Math.max(1, source.length - removeLength);
+
+  const target = ctx.createBuffer(source.numberOfChannels, newLength, sampleRate);
+  for (let c = 0; c < source.numberOfChannels; c++) {
+    const srcData = source.getChannelData(c);
+    const dstData = target.getChannelData(c);
+    
+    // Copy first part [0..startSample]
+    if (startSample > 0) {
+      dstData.set(srcData.subarray(0, startSample), 0);
+    }
+    // Copy second part [endSample..length]
+    if (endSample < source.length) {
+      dstData.set(srcData.subarray(endSample, source.length), startSample);
+    }
+  }
+  return target;
+}
+
+export function insertSilence(
+  ctx: BaseAudioContext,
+  source: AudioBuffer,
+  atSec: number,
+  durationSec: number
+): AudioBuffer {
+  const sampleRate = source.sampleRate;
+  const atSample = Math.min(source.length, Math.max(0, Math.floor(atSec * sampleRate)));
+  const silenceSamples = Math.floor(durationSec * sampleRate);
+  const newLength = source.length + silenceSamples;
+
+  const target = ctx.createBuffer(source.numberOfChannels, newLength, sampleRate);
+  for (let c = 0; c < source.numberOfChannels; c++) {
+    const srcData = source.getChannelData(c);
+    const dstData = target.getChannelData(c);
+    
+    if (atSample > 0) {
+      dstData.set(srcData.subarray(0, atSample), 0);
+    }
+    if (atSample < source.length) {
+      dstData.set(srcData.subarray(atSample, source.length), atSample + silenceSamples);
+    }
+  }
+  return target;
+}
+
+export function muteRegion(
+  ctx: BaseAudioContext,
+  source: AudioBuffer,
+  startSec: number,
+  endSec: number
+): AudioBuffer {
+  const target = cloneBuffer(ctx, source);
+  const sampleRate = target.sampleRate;
+  const startSample = Math.max(0, Math.floor(startSec * sampleRate));
+  const endSample = Math.min(target.length, Math.floor(endSec * sampleRate));
+
+  for (let c = 0; c < target.numberOfChannels; c++) {
+    const dstData = target.getChannelData(c);
+    for (let i = startSample; i < endSample; i++) {
+      dstData[i] = 0;
+    }
+  }
+  return target;
+}
+
+export function applyGain(
+  ctx: BaseAudioContext,
+  source: AudioBuffer,
+  gainDb: number,
+  startSec?: number,
+  endSec?: number
+): AudioBuffer {
+  const target = cloneBuffer(ctx, source);
+  const linearGain = Math.pow(10, gainDb / 20);
+  const sampleRate = target.sampleRate;
+  
+  const startSample = startSec !== undefined ? Math.max(0, Math.floor(startSec * sampleRate)) : 0;
+  const endSample = endSec !== undefined ? Math.min(target.length, Math.floor(endSec * sampleRate)) : target.length;
+
+  for (let c = 0; c < target.numberOfChannels; c++) {
+    const dstData = target.getChannelData(c);
+    for (let i = startSample; i < endSample; i++) {
+      dstData[i] = Math.max(-1, Math.min(1, dstData[i] * linearGain));
+    }
+  }
+  return target;
+}
+
+export function normalizeBuffer(
+  ctx: BaseAudioContext,
+  source: AudioBuffer,
+  targetDb: number = 0,
+  startSec?: number,
+  endSec?: number
+): AudioBuffer {
+  const target = cloneBuffer(ctx, source);
+  const sampleRate = target.sampleRate;
+  
+  const startSample = startSec !== undefined ? Math.max(0, Math.floor(startSec * sampleRate)) : 0;
+  const endSample = endSec !== undefined ? Math.min(target.length, Math.floor(endSec * sampleRate)) : target.length;
+
+  let peak = 0;
+  for (let c = 0; c < target.numberOfChannels; c++) {
+    const data = target.getChannelData(c);
+    for (let i = startSample; i < endSample; i++) {
+      const absVal = Math.abs(data[i]);
+      if (absVal > peak) peak = absVal;
+    }
+  }
+
+  if (peak === 0) return target;
+
+  const targetLinear = Math.pow(10, targetDb / 20);
+  const multiplier = targetLinear / peak;
+
+  for (let c = 0; c < target.numberOfChannels; c++) {
+    const dstData = target.getChannelData(c);
+    for (let i = startSample; i < endSample; i++) {
+      dstData[i] = Math.max(-1, Math.min(1, dstData[i] * multiplier));
+    }
+  }
+  return target;
+}
+
+export function applyFade(
+  ctx: BaseAudioContext,
+  source: AudioBuffer,
+  startSec: number,
+  durationSec: number,
+  type: 'in' | 'out',
+  curve: FadeCurve = 'linear'
+): AudioBuffer {
+  const target = cloneBuffer(ctx, source);
+  const sampleRate = target.sampleRate;
+  const startSample = Math.max(0, Math.floor(startSec * sampleRate));
+  const fadeLength = Math.max(1, Math.floor(durationSec * sampleRate));
+  const endSample = Math.min(target.length, startSample + fadeLength);
+
+  for (let c = 0; c < target.numberOfChannels; c++) {
+    const data = target.getChannelData(c);
+    for (let i = startSample; i < endSample; i++) {
+      const progress = (i - startSample) / fadeLength;
+      let factor = type === 'in' ? progress : (1 - progress);
+
+      switch (curve) {
+        case 'exponential':
+          factor = type === 'in' ? Math.pow(progress, 2) : Math.pow(1 - progress, 2);
+          break;
+        case 'logarithmic':
+          factor = type === 'in' ? Math.sqrt(progress) : Math.sqrt(1 - progress);
+          break;
+        case 's-curve':
+          factor = type === 'in' 
+            ? (0.5 - 0.5 * Math.cos(progress * Math.PI))
+            : (0.5 + 0.5 * Math.cos(progress * Math.PI));
+          break;
+        case 'linear':
+        default:
+          break;
+      }
+
+      data[i] = data[i] * factor;
+    }
+  }
+  return target;
+}
+
+export function reverseBuffer(
+  ctx: BaseAudioContext,
+  source: AudioBuffer,
+  startSec?: number,
+  endSec?: number
+): AudioBuffer {
+  const target = cloneBuffer(ctx, source);
+  const sampleRate = target.sampleRate;
+  const startSample = startSec !== undefined ? Math.max(0, Math.floor(startSec * sampleRate)) : 0;
+  const endSample = endSec !== undefined ? Math.min(target.length, Math.floor(endSec * sampleRate)) : target.length;
+
+  for (let c = 0; c < target.numberOfChannels; c++) {
+    const data = target.getChannelData(c);
+    const region = data.subarray(startSample, endSample);
+    const reversed = new Float32Array(region).reverse();
+    data.set(reversed, startSample);
+  }
+  return target;
+}
+
+export function invertPhase(
+  ctx: BaseAudioContext,
+  source: AudioBuffer,
+  startSec?: number,
+  endSec?: number
+): AudioBuffer {
+  const target = cloneBuffer(ctx, source);
+  const sampleRate = target.sampleRate;
+  const startSample = startSec !== undefined ? Math.max(0, Math.floor(startSec * sampleRate)) : 0;
+  const endSample = endSec !== undefined ? Math.min(target.length, Math.floor(endSec * sampleRate)) : target.length;
+
+  for (let c = 0; c < target.numberOfChannels; c++) {
+    const data = target.getChannelData(c);
+    for (let i = startSample; i < endSample; i++) {
+      data[i] = -data[i];
+    }
+  }
+  return target;
+}
+
+export function appendBuffers(
+  ctx: BaseAudioContext,
+  bufferA: AudioBuffer,
+  bufferB: AudioBuffer
+): AudioBuffer {
+  const channels = Math.max(bufferA.numberOfChannels, bufferB.numberOfChannels);
+  const newLength = bufferA.length + bufferB.length;
+  const sampleRate = bufferA.sampleRate;
+
+  const target = ctx.createBuffer(channels, newLength, sampleRate);
+  for (let c = 0; c < channels; c++) {
+    const dst = target.getChannelData(c);
+    const srcA = c < bufferA.numberOfChannels ? bufferA.getChannelData(c) : bufferA.getChannelData(0);
+    const srcB = c < bufferB.numberOfChannels ? bufferB.getChannelData(c) : bufferB.getChannelData(0);
+    dst.set(srcA, 0);
+    dst.set(srcB, bufferA.length);
+  }
+  return target;
+}
