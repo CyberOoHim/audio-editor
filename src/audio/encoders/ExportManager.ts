@@ -8,6 +8,14 @@ import { encodeFlac } from './FlacEncoder';
 import { encodeOgg } from './OggEncoder';
 import { encodeOpus } from './OpusEncoder';
 import { encodeWebm } from './WebmEncoder';
+import { encodeAiff } from './AiffEncoder';
+import { encodeCaf } from './CafEncoder';
+import { encodeAu } from './AuEncoder';
+import { encodeRawPcm } from './RawPcmEncoder';
+import { encodeM4r } from './M4rEncoder';
+import { encodeWma } from './WmaEncoder';
+import { encodeAmr } from './AmrEncoder';
+import { encodeMp2 } from './Mp2Encoder';
 
 export async function exportAudio(
   buffer: AudioBuffer,
@@ -65,6 +73,7 @@ export async function exportAudio(
 
     case 'ogg':
       blob = await encodeOgg(targetBuffer, {
+        bitrate: settings.mp3Bitrate,
         channels: settings.channels,
         sampleRate: settings.sampleRate,
         onProgress
@@ -73,6 +82,7 @@ export async function exportAudio(
 
     case 'opus':
       blob = await encodeOpus(targetBuffer, {
+        bitrate: settings.mp3Bitrate,
         channels: settings.channels,
         sampleRate: settings.sampleRate,
         onProgress
@@ -81,10 +91,92 @@ export async function exportAudio(
 
     case 'webm':
       blob = await encodeWebm(targetBuffer, {
+        bitrate: settings.mp3Bitrate,
         channels: settings.channels,
         sampleRate: settings.sampleRate,
         onProgress
       });
+      break;
+
+    case 'aiff':
+      blob = await encodeAiff(targetBuffer, {
+        bitDepth: settings.aiffBitDepth || settings.wavBitDepth,
+        channels: settings.channels,
+        sampleRate: settings.sampleRate,
+        onProgress
+      });
+      extension = 'aiff';
+      break;
+
+    case 'caf':
+      blob = await encodeCaf(targetBuffer, {
+        bitDepth: settings.wavBitDepth,
+        channels: settings.channels,
+        sampleRate: settings.sampleRate,
+        onProgress
+      });
+      extension = 'caf';
+      break;
+
+    case 'au':
+      blob = await encodeAu(targetBuffer, {
+        bitDepth: settings.auBitDepth || (settings.wavBitDepth as 16 | 24 | 32),
+        channels: settings.channels,
+        sampleRate: settings.sampleRate,
+        onProgress
+      });
+      extension = 'au';
+      break;
+
+    case 'raw':
+      blob = await encodeRawPcm(targetBuffer, {
+        bitDepth: settings.rawBitDepth || (settings.wavBitDepth as 16 | 24 | 32),
+        endian: settings.rawEndian || 'little',
+        channels: settings.channels,
+        sampleRate: settings.sampleRate,
+        onProgress
+      });
+      extension = 'raw';
+      break;
+
+    case 'm4r':
+      blob = await encodeM4r(targetBuffer, {
+        bitrate: settings.aacBitrate || settings.mp3Bitrate,
+        channels: settings.channels,
+        sampleRate: settings.sampleRate,
+        onProgress
+      });
+      extension = 'm4r';
+      break;
+
+    case 'wma':
+      blob = await encodeWma(targetBuffer, {
+        bitrate: settings.mp3Bitrate,
+        channels: settings.channels,
+        sampleRate: settings.sampleRate,
+        onProgress
+      });
+      extension = 'wma';
+      break;
+
+    case 'amr':
+      blob = await encodeAmr(targetBuffer, {
+        bitrate: 64,
+        channels: settings.channels,
+        sampleRate: settings.sampleRate,
+        onProgress
+      });
+      extension = 'amr';
+      break;
+
+    case 'mp2':
+      blob = await encodeMp2(targetBuffer, {
+        bitrate: settings.mp3Bitrate,
+        channels: settings.channels,
+        sampleRate: settings.sampleRate,
+        onProgress
+      });
+      extension = 'mp2';
       break;
 
     case 'wav':

@@ -1,7 +1,7 @@
 import * as lameModule from '@breezystack/lamejs';
 
 export interface Mp3EncoderOptions {
-  bitrate?: 128 | 192 | 256 | 320;
+  bitrate?: number;
   channels?: 1 | 2;
   sampleRate?: number;
   onProgress?: (progress: number) => void;

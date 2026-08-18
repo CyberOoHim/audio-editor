@@ -1,6 +1,6 @@
 import { encodeViaMediaRecorder } from './MediaRecorderHelper';
 
-export interface AacEncoderOptions {
+export interface WmaEncoderOptions {
   bitrate?: number;
   channels?: 1 | 2;
   sampleRate?: number;
@@ -8,15 +8,15 @@ export interface AacEncoderOptions {
 }
 
 /**
- * Encodes an AudioBuffer into AAC / MP4 container using native MediaRecorder
+ * Encodes an AudioBuffer into Windows Media Audio stream / container.
  */
-export async function encodeAac(
+export async function encodeWma(
   buffer: AudioBuffer,
-  options: AacEncoderOptions = {}
+  options: WmaEncoderOptions = {}
 ): Promise<Blob> {
   return await encodeViaMediaRecorder(
     buffer,
-    ['audio/aac', 'audio/mp4', 'audio/x-m4a', 'audio/webm;codecs=opus'],
+    ['audio/x-ms-wma', 'audio/wma', 'audio/webm;codecs=opus', 'audio/ogg', 'audio/mp4'],
     {
       bitrate: options.bitrate || 192,
       sampleRate: options.sampleRate,

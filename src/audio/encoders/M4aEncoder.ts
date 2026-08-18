@@ -1,7 +1,7 @@
 import { encodeViaMediaRecorder } from './MediaRecorderHelper';
 
 export interface M4aEncoderOptions {
-  bitrate?: 128 | 192 | 256 | 320;
+  bitrate?: number;
   channels?: 1 | 2;
   sampleRate?: number;
   onProgress?: (progress: number) => void;

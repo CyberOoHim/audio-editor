@@ -1,6 +1,6 @@
 import { encodeViaMediaRecorder } from './MediaRecorderHelper';
 
-export interface AacEncoderOptions {
+export interface M4rEncoderOptions {
   bitrate?: number;
   channels?: 1 | 2;
   sampleRate?: number;
@@ -8,17 +8,17 @@ export interface AacEncoderOptions {
 }
 
 /**
- * Encodes an AudioBuffer into AAC / MP4 container using native MediaRecorder
+ * Encodes an AudioBuffer into iPhone Ringtone (.m4r) format using AAC/MP4.
  */
-export async function encodeAac(
+export async function encodeM4r(
   buffer: AudioBuffer,
-  options: AacEncoderOptions = {}
+  options: M4rEncoderOptions = {}
 ): Promise<Blob> {
   return await encodeViaMediaRecorder(
     buffer,
-    ['audio/aac', 'audio/mp4', 'audio/x-m4a', 'audio/webm;codecs=opus'],
+    ['audio/mp4', 'audio/aac', 'audio/x-m4a', 'audio/webm;codecs=opus'],
     {
-      bitrate: options.bitrate || 192,
+      bitrate: options.bitrate || 256,
       sampleRate: options.sampleRate,
       onProgress: options.onProgress
     }
