@@ -150,7 +150,9 @@ export function AudioStudioApp() {
   };
 
   // Responsive UI & Modals State
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && window.innerWidth > 960;
+  });
   const [recordModalOpen, setRecordModalOpen] = useState<boolean>(false);
   const [effectsModalOpen, setEffectsModalOpen] = useState<boolean>(false);
   const [exportModalOpen, setExportModalOpen] = useState<boolean>(false);
@@ -165,6 +167,7 @@ export function AudioStudioApp() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isEditorDragOver, setIsEditorDragOver] = useState<boolean>(false);
   const headerFileInputRef = useRef<HTMLInputElement>(null);
+  const sidebarTouchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
   // PWA Install Prompt Listener
   useEffect(() => {
@@ -231,7 +234,7 @@ export function AudioStudioApp() {
       }
 
       showToast(`Loaded "${fileItem.name}"`, 'success');
-      if (window.innerWidth < 860) {
+      if (window.innerWidth <= 960) {
         setSidebarOpen(false);
       }
     } catch (err) {
@@ -1034,9 +1037,83 @@ export function AudioStudioApp() {
   const handleOpenPwaModal = useCallback(() => setPwaModalOpen(true), []);
   const handleClosePwaModal = useCallback(() => setPwaModalOpen(false), []);
 
-  const handleOpenLibrary = useCallback(() => setSidebarOpen(true), []);
-  const handleCloseSidebar = useCallback(() => setSidebarOpen(false), []);
-  const handleToggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), []);
+  // Support Android System Back button & Back gesture navigation to dismiss sidebar
+  useEffect(() => {
+    const handlePopState = () => {
+      setSidebarOpen(false);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Escape key listener to close sidebar
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && sidebarOpen) {
+        setSidebarOpen(false);
+        if (typeof window !== 'undefined' && window.history.state?.drawer === 'sidebar') {
+          window.history.back();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [sidebarOpen]);
+
+  const handleOpenLibrary = useCallback(() => {
+    setSidebarOpen(true);
+    if (typeof window !== 'undefined' && window.innerWidth <= 960) {
+      window.history.pushState({ drawer: 'sidebar' }, '');
+    }
+  }, []);
+
+  const handleCloseSidebar = useCallback(() => {
+    setSidebarOpen(false);
+    if (typeof window !== 'undefined' && window.history.state?.drawer === 'sidebar') {
+      window.history.back();
+    }
+  }, []);
+
+  const handleToggleSidebar = useCallback(() => {
+    setSidebarOpen((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        if (next && window.innerWidth <= 960) {
+          window.history.pushState({ drawer: 'sidebar' }, '');
+        } else if (!next && window.history.state?.drawer === 'sidebar') {
+          window.history.back();
+        }
+      }
+      return next;
+    });
+  }, []);
+
+  // Touch Swipe-to-Dismiss gesture handlers on sidebar for Android / Mobile
+  const handleSidebarTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      sidebarTouchStartRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        time: Date.now()
+      };
+    }
+  }, []);
+
+  const handleSidebarTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!sidebarTouchStartRef.current || e.changedTouches.length === 0) return;
+    const endX = e.changedTouches[0].clientX;
+    const endY = e.changedTouches[0].clientY;
+    const diffX = endX - sidebarTouchStartRef.current.x;
+    const diffY = endY - sidebarTouchStartRef.current.y;
+    const elapsed = Date.now() - sidebarTouchStartRef.current.time;
+
+    // Horizontal swipe left by > 40px or quick flick left (< 250ms and > 25px)
+    if ((diffX < -40 || (diffX < -25 && elapsed < 250)) && Math.abs(diffX) > Math.abs(diffY)) {
+      handleCloseSidebar();
+    }
+    sidebarTouchStartRef.current = null;
+  }, [handleCloseSidebar]);
 
   const handlePromptInstall = useCallback(() => {
     if (deferredPrompt) {
@@ -1058,6 +1135,7 @@ export function AudioStudioApp() {
             className="btn btn-ghost btn-icon-sm"
             onClick={handleToggleSidebar}
             title="Toggle File Library"
+            aria-label="Toggle File Library"
           >
             <Menu size={18} />
           </button>
@@ -1143,14 +1221,24 @@ export function AudioStudioApp() {
         {/* Mobile Backdrop for Sidebar Drawer */}
         {sidebarOpen && (
           <div
-            className="backdrop"
-            style={{ zIndex: 30, background: 'rgba(0, 0, 0, 0.6)' }}
+            className="sidebar-backdrop"
             onClick={handleCloseSidebar}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              handleCloseSidebar();
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label="Close library sidebar"
           />
         )}
 
         {/* File Manager Sidebar */}
-        <aside className={`sidebar-panel ${sidebarOpen ? 'open' : ''}`}>
+        <aside
+          className={`sidebar-panel ${sidebarOpen ? 'open' : ''}`}
+          onTouchStart={handleSidebarTouchStart}
+          onTouchEnd={handleSidebarTouchEnd}
+        >
           <FileManager
             folders={folders}
             files={files}

@@ -103,6 +103,9 @@ export const FileManager: React.FC<FileManagerProps> = React.memo(({
         style={{ display: 'none' }}
       />
 
+      {/* Mobile drag handle indicator */}
+      <div className="fm-drag-indicator" />
+
       {/* Header */}
       <div className="fm-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
@@ -110,8 +113,21 @@ export const FileManager: React.FC<FileManagerProps> = React.memo(({
           <span>Library & Files</span>
         </div>
         {onCloseSidebar && (
-          <button className="btn btn-ghost btn-icon-sm" onClick={onCloseSidebar}>
-            <X size={16} />
+          <button
+            type="button"
+            className="fm-close-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCloseSidebar();
+            }}
+            onTouchEnd={(e) => {
+              e.stopPropagation();
+              onCloseSidebar();
+            }}
+            aria-label="Close library sidebar"
+            title="Close Library Sidebar"
+          >
+            <X size={18} />
           </button>
         )}
       </div>
@@ -164,6 +180,27 @@ export const FileManager: React.FC<FileManagerProps> = React.memo(({
         onExportZip={onExportZip}
         onImportClick={() => fileInputRef.current?.click()}
       />
+
+      {/* Mobile Return to Editor Footer */}
+      {onCloseSidebar && (
+        <div className="fm-mobile-footer">
+          <button
+            type="button"
+            className="fm-mobile-close-action"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCloseSidebar();
+            }}
+            onTouchEnd={(e) => {
+              e.stopPropagation();
+              onCloseSidebar();
+            }}
+          >
+            <X size={15} />
+            <span>Close Library & Return to Editor</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 });
