@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Download,
   Menu,
-  Smartphone
+  Smartphone,
+  FolderOpen
 } from 'lucide-react';
 
 import type { FolderItem, AudioFileItem, StorageUsage } from './types/storage';
@@ -43,7 +44,7 @@ import { audioEngine } from './audio/AudioEngine';
 import * as BufferUtils from './audio/BufferUtils';
 import { EffectsChain } from './audio/EffectsChain';
 import { exportAudio, triggerDownload } from './audio/encoders/ExportManager';
-import { isSupportedAudioFile, SUPPORTED_FORMATS_SUMMARY } from './audio/audioFormats';
+import { isSupportedAudioFile, SUPPORTED_FORMATS_SUMMARY, SUPPORTED_UPLOAD_ACCEPT } from './audio/audioFormats';
 
 import { FileManager } from './components/file-manager/FileManager';
 import { WaveformCanvas } from './components/editor/WaveformCanvas';
@@ -161,6 +162,7 @@ export function AudioStudioApp() {
   const [pwaModalOpen, setPwaModalOpen] = useState<boolean>(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isEditorDragOver, setIsEditorDragOver] = useState<boolean>(false);
+  const headerFileInputRef = useRef<HTMLInputElement>(null);
 
   // PWA Install Prompt Listener
   useEffect(() => {
@@ -917,8 +919,32 @@ export function AudioStudioApp() {
 
         {/* Current Active Track Header */}
         <div className="track-header-display">
+          <input
+            type="file"
+            ref={headerFileInputRef}
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                handleImportFiles(e.target.files);
+                e.target.value = '';
+              }
+            }}
+            multiple
+            accept={SUPPORTED_UPLOAD_ACCEPT}
+            style={{ display: 'none' }}
+          />
           <span className="track-prefix-label" style={{ color: 'var(--text-muted)' }}>Track:</span>
           <span>{currentFileName}</span>
+          {!currentBuffer && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-xs track-header-open-btn"
+              onClick={() => headerFileInputRef.current?.click()}
+              title="Open / Import Audio File"
+            >
+              <FolderOpen size={11} color="var(--accent-cyan)" />
+              <span>Open</span>
+            </button>
+          )}
         </div>
 
         {/* Header Action Buttons */}
@@ -1063,6 +1089,12 @@ export function AudioStudioApp() {
               onSelectRegion={setSelection}
               onZoomChange={setZoom}
               onScrollChange={setScrollLeft}
+              onImportFiles={handleImportFiles}
+              onLoadFileToEditor={loadFileToEditor}
+              onOpenRecord={() => setRecordModalOpen(true)}
+              onOpenGenerator={() => setGeneratorModalOpen(true)}
+              onOpenLibrary={() => setSidebarOpen(true)}
+              libraryFiles={files}
             />
           </div>
 

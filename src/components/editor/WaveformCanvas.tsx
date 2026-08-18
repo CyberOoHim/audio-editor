@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Hand, MousePointer, Music } from 'lucide-react';
+import { Hand, MousePointer } from 'lucide-react';
 import type { AudioSelection } from '../../types/audio';
+import type { AudioFileItem } from '../../types/storage';
+import { EmptyStudioState } from './EmptyStudioState';
 
 export interface WaveformCanvasProps {
   buffer: AudioBuffer | null;
@@ -16,6 +18,12 @@ export interface WaveformCanvasProps {
   onSelectRegion: (selection: AudioSelection | null) => void;
   onZoomChange: (newZoom: number) => void;
   onScrollChange: (newScrollLeft: number) => void;
+  onImportFiles?: (files: FileList | File[]) => void;
+  onLoadFileToEditor?: (file: AudioFileItem) => void;
+  onOpenRecord?: () => void;
+  onOpenGenerator?: () => void;
+  onOpenLibrary?: () => void;
+  libraryFiles?: AudioFileItem[];
 }
 
 type DragMode = 'none' | 'create-selection' | 'drag-handle-start' | 'drag-handle-end' | 'scrub-playhead' | 'pan';
@@ -33,7 +41,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   onSeek,
   onSelectRegion,
   onZoomChange,
-  onScrollChange
+  onScrollChange,
+  onImportFiles,
+  onLoadFileToEditor,
+  onOpenRecord,
+  onOpenGenerator,
+  onOpenLibrary,
+  libraryFiles = []
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -457,44 +471,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
           />
         </>
       ) : (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 12,
-            padding: 24,
-            textAlign: 'center',
-            userSelect: 'none'
-          }}
-        >
-          <div
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: '50%',
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--border-medium)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--text-muted)'
-            }}
-          >
-            <Music size={26} />
-          </div>
-          <div>
-            <div style={{ fontSize: 'var(--font-lg)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
-              No Audio File Selected
-            </div>
-            <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', maxWidth: 380, lineHeight: 1.5 }}>
-              Select a file from the sidebar Library, drag &amp; drop an audio file here, or record a new sample to start editing.
-            </div>
-          </div>
-        </div>
+        <EmptyStudioState
+          onImportFiles={onImportFiles || (() => {})}
+          onLoadFileToEditor={onLoadFileToEditor || (() => {})}
+          onOpenRecord={onOpenRecord}
+          onOpenGenerator={onOpenGenerator}
+          onOpenLibrary={onOpenLibrary}
+          libraryFiles={libraryFiles}
+        />
       )}
     </div>
   );
