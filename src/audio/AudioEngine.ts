@@ -28,9 +28,48 @@ export class AudioEngine {
   private bufferListeners: Set<BufferChangeCallback> = new Set();
   
   private animFrameId: number | null = null;
+  private lastUserActivityTime: number = Date.now();
+  private idleSuspendTimeout: ReturnType<typeof setTimeout> | null = null;
+  private isDocumentVisible: boolean = true;
 
   private constructor() {
-    // Singleton
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        this.isDocumentVisible = !document.hidden;
+        if (this.isDocumentVisible) {
+          this.reportUserActivity();
+          if (this.playState === 'playing') {
+            this.startProgressTicker();
+          }
+        }
+      });
+    }
+  }
+
+  public reportUserActivity(): void {
+    this.lastUserActivityTime = Date.now();
+    this.resetIdleHardwareTimer();
+  }
+
+  private resetIdleHardwareTimer(): void {
+    if (this.idleSuspendTimeout !== null) {
+      clearTimeout(this.idleSuspendTimeout);
+      this.idleSuspendTimeout = null;
+    }
+
+    // If currently playing, do not suspend the audio hardware
+    if (this.playState === 'playing') return;
+
+    // When paused/idle, put audio hardware DAC to sleep after 20 seconds of inactivity
+    this.idleSuspendTimeout = setTimeout(() => {
+      if (this.playState !== 'playing' && this.ctx && this.ctx.state === 'running') {
+        try {
+          this.ctx.suspend();
+        } catch {
+          // Context may already be suspended
+        }
+      }
+    }, 20000);
   }
 
   public static getInstance(): AudioEngine {
@@ -58,6 +97,7 @@ export class AudioEngine {
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
     }
+    this.resetIdleHardwareTimer();
     return this.ctx;
   }
 
@@ -300,10 +340,19 @@ export class AudioEngine {
   private startProgressTicker(): void {
     this.stopProgressTicker();
     let lastTickTime = 0;
-    const minTickInterval = 1000 / 35; // Cap to ~35 FPS to prevent battery drain and overheating on 120Hz iPads
 
     const tick = (timestamp: number) => {
       if (this.playState === 'playing') {
+        // If tab is in background / locked screen, completely pause UI ticker canvas updates
+        if (!this.isDocumentVisible) {
+          this.animFrameId = requestAnimationFrame(tick);
+          return;
+        }
+
+        // Adaptive Eco Mode: if user hasn't interacted for >15s during playback, drop to 12 FPS
+        const isIdle = (Date.now() - this.lastUserActivityTime) > 15000;
+        const minTickInterval = isIdle ? (1000 / 12) : (1000 / 35);
+
         if (timestamp - lastTickTime >= minTickInterval) {
           lastTickTime = timestamp;
           const time = this.getCurrentTime();

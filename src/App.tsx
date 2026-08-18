@@ -286,6 +286,30 @@ export function AudioStudioApp() {
     };
   }, []);
 
+  // User activity tracker for Audio Engine Eco / Low-Power Mode
+  useEffect(() => {
+    let lastReport = 0;
+    const handleActivity = () => {
+      const now = Date.now();
+      if (now - lastReport > 2000) {
+        lastReport = now;
+        audioEngine.reportUserActivity();
+      }
+    };
+
+    window.addEventListener('pointerdown', handleActivity, { passive: true });
+    window.addEventListener('pointermove', handleActivity, { passive: true });
+    window.addEventListener('keydown', handleActivity, { passive: true });
+    window.addEventListener('touchstart', handleActivity, { passive: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', handleActivity);
+      window.removeEventListener('pointermove', handleActivity);
+      window.removeEventListener('keydown', handleActivity);
+      window.removeEventListener('touchstart', handleActivity);
+    };
+  }, []);
+
   // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

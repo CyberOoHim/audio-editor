@@ -45,7 +45,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     const draw = (timestamp: number) => {
       animId = requestAnimationFrame(draw);
 
-      if (timestamp - lastDraw < minDrawInterval) {
+      if (document.hidden || timestamp - lastDraw < minDrawInterval) {
         return;
       }
       lastDraw = timestamp;
