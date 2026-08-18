@@ -277,10 +277,6 @@ export function AudioStudioApp() {
       setCurrentBuffer(buffer);
       setCanUndo(audioEngine.history.canUndo());
       setCanRedo(audioEngine.history.canRedo());
-      if (buffer && canvasDimensions.width > 0) {
-        // Fit zoom on initial buffer change if not yet zoomed
-        setZoom(Math.max(10, canvasDimensions.width / Math.max(1, buffer.duration)));
-      }
     });
 
     return () => {
@@ -288,7 +284,7 @@ export function AudioStudioApp() {
       unsubState();
       unsubBuffer();
     };
-  }, [canvasDimensions.width]);
+  }, []);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -333,83 +329,83 @@ export function AudioStudioApp() {
   }, [playState, currentTime, selection, currentBuffer]);
 
   // Playback Controls
-  const handlePlay = () => {
+  const handlePlay = useCallback(() => {
     if (!currentBuffer) return;
     audioEngine.play(currentTime, selection || undefined);
-  };
+  }, [currentBuffer, currentTime, selection]);
 
-  const handlePause = () => {
+  const handlePause = useCallback(() => {
     audioEngine.pause();
-  };
+  }, []);
 
-  const handleStop = () => {
+  const handleStop = useCallback(() => {
     audioEngine.stop();
     if (selection) {
       audioEngine.seek(selection.start);
     }
-  };
+  }, [selection]);
 
-  const handleSeek = (time: number) => {
+  const handleSeek = useCallback((time: number) => {
     audioEngine.seek(time);
     setCurrentTime(time);
-  };
+  }, []);
 
-  const handleToggleLoop = () => {
-    const newLoop = !isLooping;
-    setIsLooping(newLoop);
-    audioEngine.setLoop(newLoop, selection || undefined);
-  };
+  const handleToggleLoop = useCallback(() => {
+    setIsLooping((prev) => {
+      const newLoop = !prev;
+      audioEngine.setLoop(newLoop, selection || undefined);
+      return newLoop;
+    });
+  }, [selection]);
 
-  const handleVolumeChange = (val: number) => {
+  const handleVolumeChange = useCallback((val: number) => {
     setVolume(val);
     audioEngine.setVolume(val);
-  };
+  }, []);
 
   // Undo / Redo
-  const handleUndo = () => {
+  const handleUndo = useCallback(() => {
     if (audioEngine.undo()) {
       showToast('Undo', 'info');
     }
-  };
+  }, [showToast]);
 
-  const handleRedo = () => {
+  const handleRedo = useCallback(() => {
     if (audioEngine.redo()) {
       showToast('Redo', 'info');
     }
-  };
+  }, [showToast]);
 
   // Zoom Controls
-  const handleZoomIn = () => {
-    const newZoom = Math.min(5000, zoom * 1.4);
-    setZoom(newZoom);
-  };
+  const handleZoomIn = useCallback(() => {
+    setZoom((prev) => Math.min(5000, prev * 1.4));
+  }, []);
 
-  const handleZoomOut = () => {
-    const newZoom = Math.max(10, zoom / 1.4);
-    setZoom(newZoom);
-  };
+  const handleZoomOut = useCallback(() => {
+    setZoom((prev) => Math.max(10, prev / 1.4));
+  }, []);
 
-  const handleZoomFit = () => {
+  const handleZoomFit = useCallback(() => {
     if (currentBuffer && canvasDimensions.width > 0) {
       const fitZoom = Math.max(10, canvasDimensions.width / currentBuffer.duration);
       setZoom(fitZoom);
       setScrollLeft(0);
     }
-  };
+  }, [currentBuffer, canvasDimensions.width]);
 
   // Selection
-  const handleSelectAll = () => {
+  const handleSelectAll = useCallback(() => {
     if (currentBuffer) {
       setSelection({ start: 0, end: currentBuffer.duration });
     }
-  };
+  }, [currentBuffer]);
 
-  const handleClearSelection = () => {
+  const handleClearSelection = useCallback(() => {
     setSelection(null);
-  };
+  }, []);
 
   // DSP Operations
-  const handleTrim = () => {
+  const handleTrim = useCallback(() => {
     if (!currentBuffer || !selection || selection.end <= selection.start) return;
     const ctx = audioEngine.getContext();
     const newBuffer = BufferUtils.sliceBuffer(ctx, currentBuffer, selection.start, selection.end);
@@ -417,40 +413,40 @@ export function AudioStudioApp() {
     setSelection(null);
     setScrollLeft(0);
     showToast('Trimmed to selection', 'success');
-  };
+  }, [currentBuffer, selection, showToast]);
 
-  const handleCut = () => {
+  const handleCut = useCallback(() => {
     if (!currentBuffer || !selection || selection.end <= selection.start) return;
     const ctx = audioEngine.getContext();
     const newBuffer = BufferUtils.deleteRegion(ctx, currentBuffer, selection.start, selection.end);
     audioEngine.setBufferDirectly(newBuffer, `Cut ${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s`);
     setSelection(null);
     showToast('Cut selected region', 'success');
-  };
+  }, [currentBuffer, selection, showToast]);
 
-  const handleToggleTimeFormat = () => {
+  const handleToggleTimeFormat = useCallback(() => {
     setTimeFormat((prev) => {
       if (prev === 'hms') return 'seconds';
       if (prev === 'seconds') return 'samples';
       return 'hms';
     });
-  };
+  }, []);
 
-  const handlePlaybackRateChange = (rate: number) => {
+  const handlePlaybackRateChange = useCallback((rate: number) => {
     setPlaybackRate(rate);
     audioEngine.setPlaybackRate(rate);
     showToast(`Playback speed set to ${rate}x`, 'info');
-  };
+  }, [showToast]);
 
-  const handleSilence = () => {
+  const handleSilence = useCallback(() => {
     if (!currentBuffer || !selection || selection.end <= selection.start) return;
     const ctx = audioEngine.getContext();
     const newBuffer = BufferUtils.muteRegion(ctx, currentBuffer, selection.start, selection.end);
     audioEngine.setBufferDirectly(newBuffer, `Silenced ${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s`);
     showToast('Silenced selection', 'success');
-  };
+  }, [currentBuffer, selection, showToast]);
 
-  const handleInsertSilence = (
+  const handleInsertSilence = useCallback((
     durationSec: number,
     placement: 'playhead' | 'start' | 'end' | 'replace-selection' = 'playhead'
   ) => {
@@ -478,9 +474,9 @@ export function AudioStudioApp() {
 
     audioEngine.setBufferDirectly(newBuffer, label);
     showToast(label, 'success');
-  };
+  }, [currentBuffer, selection, currentTime, showToast]);
 
-  const handleQuickFadeIn = () => {
+  const handleQuickFadeIn = useCallback(() => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
     let startSec = 0;
@@ -495,9 +491,9 @@ export function AudioStudioApp() {
     const newBuffer = BufferUtils.applyFade(ctx, currentBuffer, startSec, safeDuration, 'in', fadeCurve);
     audioEngine.setBufferDirectly(newBuffer, `Fade In (${safeDuration.toFixed(2)}s, ${fadeCurve})`);
     showToast(`Applied Fade In (${safeDuration.toFixed(2)}s)`, 'success');
-  };
+  }, [currentBuffer, selection, fadeInDuration, fadeCurve, showToast]);
 
-  const handleQuickFadeOut = () => {
+  const handleQuickFadeOut = useCallback(() => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
     let startSec = Math.max(0, currentBuffer.duration - fadeOutDuration);
@@ -512,14 +508,14 @@ export function AudioStudioApp() {
     const newBuffer = BufferUtils.applyFade(ctx, currentBuffer, startSec, safeDuration, 'out', fadeCurve);
     audioEngine.setBufferDirectly(newBuffer, `Fade Out (${safeDuration.toFixed(2)}s, ${fadeCurve})`);
     showToast(`Applied Fade Out (${safeDuration.toFixed(2)}s)`, 'success');
-  };
+  }, [currentBuffer, selection, fadeOutDuration, fadeCurve, showToast]);
 
-  const handleOpenFadeModal = (type: FadeType = 'in') => {
+  const handleOpenFadeModal = useCallback((type: FadeType = 'in') => {
     setFadeModalInitialType(type);
     setFadeModalOpen(true);
-  };
+  }, []);
 
-  const handleApplyFade = (
+  const handleApplyFade = useCallback((
     type: FadeType,
     durationSec: number,
     curve: FadeCurve,
@@ -552,9 +548,9 @@ export function AudioStudioApp() {
     const label = `${type === 'in' ? 'Fade In' : 'Fade Out'} (${safeDuration.toFixed(2)}s, ${curve})`;
     audioEngine.setBufferDirectly(newBuffer, label);
     showToast(`Applied ${label}`, 'success');
-  };
+  }, [currentBuffer, selection, currentTime, showToast]);
 
-  const handleApplyGain = (gainDb: number, target: 'selection' | 'all') => {
+  const handleApplyGain = useCallback((gainDb: number, target: 'selection' | 'all') => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
     const startSec = target === 'selection' && selection ? selection.start : undefined;
@@ -562,9 +558,9 @@ export function AudioStudioApp() {
     const newBuffer = BufferUtils.applyGain(ctx, currentBuffer, gainDb, startSec, endSec);
     audioEngine.setBufferDirectly(newBuffer, `Gain ${gainDb > 0 ? '+' : ''}${gainDb}dB`);
     showToast(`Applied ${gainDb > 0 ? '+' : ''}${gainDb}dB gain`, 'success');
-  };
+  }, [currentBuffer, selection, showToast]);
 
-  const handleApplyNormalize = (targetDb: number = -0.1, scope: 'all' | 'selection' = 'all') => {
+  const handleApplyNormalize = useCallback((targetDb: number = -0.1, scope: 'all' | 'selection' = 'all') => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
     const startSec = scope === 'selection' && selection ? selection.start : undefined;
@@ -573,9 +569,9 @@ export function AudioStudioApp() {
     const label = `Normalize to ${targetDb > 0 ? `+${targetDb}` : targetDb}dBFS (${scope})`;
     audioEngine.setBufferDirectly(newBuffer, label);
     showToast(`Normalized to ${targetDb}dBFS`, 'success');
-  };
+  }, [currentBuffer, selection, showToast]);
 
-  const handleGenerateSignal = async (settings: SignalGeneratorSettings) => {
+  const handleGenerateSignal = useCallback(async (settings: SignalGeneratorSettings) => {
     const ctx = audioEngine.getContext();
     const genBuffer = BufferUtils.generateSignalBuffer(ctx, {
       type: settings.type,
@@ -633,9 +629,9 @@ export function AudioStudioApp() {
 
     audioEngine.setBufferDirectly(resultBuffer, `Inserted ${genName}`);
     showToast(`Inserted ${genName}`, 'success');
-  };
+  }, [currentBuffer, selection, currentTime, activeFolderId, loadData, loadFileToEditor, showToast]);
 
-  const handleReverse = () => {
+  const handleReverse = useCallback(() => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
     const startSec = selection ? selection.start : undefined;
@@ -643,9 +639,9 @@ export function AudioStudioApp() {
     const newBuffer = BufferUtils.reverseBuffer(ctx, currentBuffer, startSec, endSec);
     audioEngine.setBufferDirectly(newBuffer, 'Reverse audio');
     showToast('Reversed audio', 'success');
-  };
+  }, [currentBuffer, selection, showToast]);
 
-  const handleInvert = () => {
+  const handleInvert = useCallback(() => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
     const startSec = selection ? selection.start : undefined;
@@ -653,9 +649,9 @@ export function AudioStudioApp() {
     const newBuffer = BufferUtils.invertPhase(ctx, currentBuffer, startSec, endSec);
     audioEngine.setBufferDirectly(newBuffer, 'Invert Phase');
     showToast('Phase inverted', 'success');
-  };
+  }, [currentBuffer, selection, showToast]);
 
-  const handleSplit = async () => {
+  const handleSplit = useCallback(async () => {
     if (!currentBuffer || currentTime <= 0 || currentTime >= currentBuffer.duration) {
       showToast('Position playhead within track to split', 'info');
       return;
@@ -694,9 +690,9 @@ export function AudioStudioApp() {
     setFiles(updatedFiles);
     await refreshStorage();
     showToast('Track split into two parts', 'success');
-  };
+  }, [currentBuffer, currentTime, currentFileName, activeFolderId, refreshStorage, showToast]);
 
-  const handleApplyEffects = async (
+  const handleApplyEffects = useCallback(async (
     eq: EQSettings,
     filters: FilterSettings,
     comp: CompressorSettings,
@@ -706,9 +702,9 @@ export function AudioStudioApp() {
     const newBuffer = await EffectsChain.renderEffects(currentBuffer, eq, filters, comp, speed);
     audioEngine.setBufferDirectly(newBuffer, 'Applied EQ & DSP Effects');
     showToast('Applied Studio DSP Effects', 'success');
-  };
+  }, [currentBuffer, showToast]);
 
-  const handleExport = async (settings: ExportSettings, destination: 'download' | 'library') => {
+  const handleExport = useCallback(async (settings: ExportSettings, destination: 'download' | 'library') => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
     const result = await exportAudio(currentBuffer, settings, selection, ctx);
@@ -740,9 +736,9 @@ export function AudioStudioApp() {
       await refreshStorage();
       showToast(`Saved "${saved.name}" to Library`, 'success');
     }
-  };
+  }, [currentBuffer, selection, activeFolderId, refreshStorage, showToast]);
 
-  const handleSaveRecording = async (buffer: AudioBuffer, fileName: string, action: 'editor' | 'library') => {
+  const handleSaveRecording = useCallback(async (buffer: AudioBuffer, fileName: string, action: 'editor' | 'library') => {
     const ctx = audioEngine.getContext();
     const res = await exportAudio(buffer, {
       format: 'wav',
@@ -780,9 +776,9 @@ export function AudioStudioApp() {
     } else {
       showToast(`Saved recording "${fileName}" to Recordings`, 'success');
     }
-  };
+  }, [refreshStorage, showToast]);
 
-  const handleImportFiles = async (fileList: FileList | File[]) => {
+  const handleImportFiles = useCallback(async (fileList: FileList | File[]) => {
     const tempAudioCtx = audioEngine.getContext();
     let imported = 0;
     const skippedFiles: string[] = [];
@@ -851,31 +847,31 @@ export function AudioStudioApp() {
         showToast(`Skipped ${skippedFiles.length} unsupported or unreadable file(s)`, 'warning');
       }
     }
-  };
+  }, [activeFolderId, loadFileToEditor, refreshStorage, showToast]);
 
-  const handleCreateFolder = async (name: string, color?: string) => {
+  const handleCreateFolder = useCallback(async (name: string, color?: string) => {
     await createFolder(name, null, color);
     const updated = await db.folders.toArray();
     setFolders(updated);
     showToast(`Folder "${name}" created`, 'success');
-  };
+  }, [showToast]);
 
-  const handleRenameFolder = async (id: string, newName: string) => {
+  const handleRenameFolder = useCallback(async (id: string, newName: string) => {
     await updateFolder(id, { name: newName });
     const updated = await db.folders.toArray();
     setFolders(updated);
     showToast('Folder renamed', 'success');
-  };
+  }, [showToast]);
 
-  const handleDeleteFolder = async (id: string) => {
+  const handleDeleteFolder = useCallback(async (id: string) => {
     await deleteFolder(id);
     const updated = await db.folders.toArray();
     setFolders(updated);
     if (activeFolderId === id) setActiveFolderId(null);
     showToast('Folder deleted', 'info');
-  };
+  }, [activeFolderId, showToast]);
 
-  const handleDeleteFile = async (id: string) => {
+  const handleDeleteFile = useCallback(async (id: string) => {
     await deleteAudioFile(id);
     const updated = await getAllAudioFiles();
     setFiles(updated);
@@ -887,14 +883,60 @@ export function AudioStudioApp() {
     }
     await refreshStorage();
     showToast('File deleted', 'info');
-  };
+  }, [activeFileId, refreshStorage, showToast]);
 
-  const handleExportZip = async () => {
+  const handleExportZip = useCallback(async () => {
     showToast('Generating .ZIP backup archive...', 'info');
     const zipBlob = await exportAllToZip();
     triggerDownload(zipBlob, `audiocraft_backup_${new Date().toISOString().slice(0, 10)}.zip`);
     showToast('Backup .ZIP downloaded', 'success');
-  };
+  }, [showToast]);
+
+  // Stable Memoized Modal and UI Toggles
+  const handleSeekViewport = useCallback((newStart: number) => {
+    setScrollLeft(newStart * zoom);
+  }, [zoom]);
+
+  const handleFadeSelection = useCallback(() => {
+    handleOpenFadeModal('in');
+  }, [handleOpenFadeModal]);
+
+  const handleOpenSilenceModal = useCallback(() => setSilenceModalOpen(true), []);
+  const handleCloseSilenceModal = useCallback(() => setSilenceModalOpen(false), []);
+
+  const handleOpenGainModal = useCallback(() => setGainModalOpen(true), []);
+  const handleCloseGainModal = useCallback(() => setGainModalOpen(false), []);
+
+  const handleOpenNormalizeModal = useCallback(() => setNormalizeModalOpen(true), []);
+  const handleCloseNormalizeModal = useCallback(() => setNormalizeModalOpen(false), []);
+
+  const handleOpenEffectsModal = useCallback(() => setEffectsModalOpen(true), []);
+  const handleCloseEffectsModal = useCallback(() => setEffectsModalOpen(false), []);
+
+  const handleOpenGeneratorModal = useCallback(() => setGeneratorModalOpen(true), []);
+  const handleCloseGeneratorModal = useCallback(() => setGeneratorModalOpen(false), []);
+
+  const handleOpenRecordModal = useCallback(() => setRecordModalOpen(true), []);
+  const handleCloseRecordModal = useCallback(() => setRecordModalOpen(false), []);
+
+  const handleCloseFadeModal = useCallback(() => setFadeModalOpen(false), []);
+
+  const handleOpenExportModal = useCallback(() => setExportModalOpen(true), []);
+  const handleCloseExportModal = useCallback(() => setExportModalOpen(false), []);
+
+  const handleOpenPwaModal = useCallback(() => setPwaModalOpen(true), []);
+  const handleClosePwaModal = useCallback(() => setPwaModalOpen(false), []);
+
+  const handleOpenLibrary = useCallback(() => setSidebarOpen(true), []);
+  const handleCloseSidebar = useCallback(() => setSidebarOpen(false), []);
+  const handleToggleSidebar = useCallback(() => setSidebarOpen((prev) => !prev), []);
+
+  const handlePromptInstall = useCallback(() => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(() => setDeferredPrompt(null));
+    }
+  }, [deferredPrompt]);
 
   const duration = currentBuffer ? currentBuffer.duration : 0;
   const viewportStart = Math.max(0, scrollLeft / zoom);
@@ -907,7 +949,7 @@ export function AudioStudioApp() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <button
             className="btn btn-ghost btn-icon-sm"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={handleToggleSidebar}
             title="Toggle File Library"
           >
             <Menu size={18} />
@@ -970,7 +1012,7 @@ export function AudioStudioApp() {
 
           <button
             className="btn btn-secondary btn-sm"
-            onClick={() => setPwaModalOpen(true)}
+            onClick={handleOpenPwaModal}
             title="Install PWA to Home Screen"
           >
             <Smartphone size={14} color="var(--accent-cyan)" />
@@ -979,7 +1021,7 @@ export function AudioStudioApp() {
 
           <button
             className="btn btn-primary btn-sm"
-            onClick={() => setExportModalOpen(true)}
+            onClick={handleOpenExportModal}
             disabled={!currentBuffer}
             title="Export / Convert Audio (WAV, MP3, FLAC, OGG)"
           >
@@ -996,7 +1038,7 @@ export function AudioStudioApp() {
           <div
             className="backdrop"
             style={{ zIndex: 30, background: 'rgba(0, 0, 0, 0.6)' }}
-            onClick={() => setSidebarOpen(false)}
+            onClick={handleCloseSidebar}
           />
         )}
 
@@ -1016,7 +1058,7 @@ export function AudioStudioApp() {
             onDeleteFile={handleDeleteFile}
             onImportFiles={handleImportFiles}
             onExportZip={handleExportZip}
-            onCloseSidebar={() => setSidebarOpen(false)}
+            onCloseSidebar={handleCloseSidebar}
           />
         </aside>
 
@@ -1052,17 +1094,17 @@ export function AudioStudioApp() {
             onTrim={handleTrim}
             onCut={handleCut}
             onSilence={handleSilence}
-            onInsertSilence={() => setSilenceModalOpen(true)}
+            onInsertSilence={handleOpenSilenceModal}
             onFadeInQuick={handleQuickFadeIn}
             onFadeOutQuick={handleQuickFadeOut}
             onOpenFadeModal={handleOpenFadeModal}
-            onGainModal={() => setGainModalOpen(true)}
-            onOpenNormalizeModal={() => setNormalizeModalOpen(true)}
+            onGainModal={handleOpenGainModal}
+            onOpenNormalizeModal={handleOpenNormalizeModal}
             onReverse={handleReverse}
             onInvert={handleInvert}
             onSplit={handleSplit}
-            onOpenEffects={() => setEffectsModalOpen(true)}
-            onOpenGenerator={() => setGeneratorModalOpen(true)}
+            onOpenEffects={handleOpenEffectsModal}
+            onOpenGenerator={handleOpenGeneratorModal}
           />
 
           {/* MiniMap Overview */}
@@ -1073,7 +1115,7 @@ export function AudioStudioApp() {
             viewportStart={viewportStart}
             viewportEnd={viewportEnd}
             width={canvasDimensions.width}
-            onSeekViewport={(newStart) => setScrollLeft(newStart * zoom)}
+            onSeekViewport={handleSeekViewport}
           />
 
           {/* Time Ruler */}
@@ -1102,9 +1144,9 @@ export function AudioStudioApp() {
               onScrollChange={setScrollLeft}
               onImportFiles={handleImportFiles}
               onLoadFileToEditor={loadFileToEditor}
-              onOpenRecord={() => setRecordModalOpen(true)}
-              onOpenGenerator={() => setGeneratorModalOpen(true)}
-              onOpenLibrary={() => setSidebarOpen(true)}
+              onOpenRecord={handleOpenRecordModal}
+              onOpenGenerator={handleOpenGeneratorModal}
+              onOpenLibrary={handleOpenLibrary}
               libraryFiles={files}
             />
           </div>
@@ -1122,7 +1164,7 @@ export function AudioStudioApp() {
             onToggleLoop={handleToggleLoop}
             onTrim={handleTrim}
             onCut={handleCut}
-            onFadeSelection={() => handleOpenFadeModal('in')}
+            onFadeSelection={handleFadeSelection}
           />
 
           {/* Bottom Studio Transport Bar */}
@@ -1139,7 +1181,7 @@ export function AudioStudioApp() {
             onPlay={handlePlay}
             onPause={handlePause}
             onStop={handleStop}
-            onOpenRecord={() => setRecordModalOpen(true)}
+            onOpenRecord={handleOpenRecordModal}
             onUndo={handleUndo}
             onRedo={handleRedo}
             onZoomIn={handleZoomIn}
@@ -1155,13 +1197,13 @@ export function AudioStudioApp() {
       {/* Modals Suite */}
       <RecordModal
         isOpen={recordModalOpen}
-        onClose={() => setRecordModalOpen(false)}
+        onClose={handleCloseRecordModal}
         onSaveRecording={handleSaveRecording}
       />
 
       <FadeModal
         isOpen={fadeModalOpen}
-        onClose={() => setFadeModalOpen(false)}
+        onClose={handleCloseFadeModal}
         selection={selection}
         trackDuration={duration}
         currentTime={currentTime}
@@ -1171,14 +1213,14 @@ export function AudioStudioApp() {
 
       <NormalizeModal
         isOpen={normalizeModalOpen}
-        onClose={() => setNormalizeModalOpen(false)}
+        onClose={handleCloseNormalizeModal}
         selection={selection}
         onApplyNormalize={handleApplyNormalize}
       />
 
       <GeneratorModal
         isOpen={generatorModalOpen}
-        onClose={() => setGeneratorModalOpen(false)}
+        onClose={handleCloseGeneratorModal}
         selection={selection}
         currentTime={currentTime}
         onGenerateSignal={handleGenerateSignal}
@@ -1186,13 +1228,13 @@ export function AudioStudioApp() {
 
       <EffectsModal
         isOpen={effectsModalOpen}
-        onClose={() => setEffectsModalOpen(false)}
+        onClose={handleCloseEffectsModal}
         onApplyEffects={handleApplyEffects}
       />
 
       <ExportModal
         isOpen={exportModalOpen}
-        onClose={() => setExportModalOpen(false)}
+        onClose={handleCloseExportModal}
         selection={selection}
         currentFileName={currentFileName}
         isEdited={canUndo}
@@ -1201,14 +1243,14 @@ export function AudioStudioApp() {
 
       <GainModal
         isOpen={gainModalOpen}
-        onClose={() => setGainModalOpen(false)}
+        onClose={handleCloseGainModal}
         hasSelection={Boolean(selection && selection.end > selection.start)}
         onApplyGain={handleApplyGain}
       />
 
       <SilenceModal
         isOpen={silenceModalOpen}
-        onClose={() => setSilenceModalOpen(false)}
+        onClose={handleCloseSilenceModal}
         selection={selection}
         currentTime={currentTime}
         onInsertSilence={handleInsertSilence}
@@ -1216,14 +1258,9 @@ export function AudioStudioApp() {
 
       <PwaInstallModal
         isOpen={pwaModalOpen}
-        onClose={() => setPwaModalOpen(false)}
+        onClose={handleClosePwaModal}
         deferredPrompt={deferredPrompt}
-        onPromptInstall={() => {
-          if (deferredPrompt) {
-            deferredPrompt.prompt();
-            deferredPrompt.userChoice.then(() => setDeferredPrompt(null));
-          }
-        }}
+        onPromptInstall={handlePromptInstall}
       />
     </div>
   );
