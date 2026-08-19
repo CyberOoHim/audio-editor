@@ -102,6 +102,7 @@ export function AudioStudioApp() {
   const [scrollLeft, setScrollLeft] = useState<number>(0);
   const [canvasDimensions, setCanvasDimensions] = useState<{ width: number; height: number }>({ width: 800, height: 260 });
   const [interactionMode, setInteractionMode] = useState<'select' | 'pan'>('select');
+  const [minimapMode, setMinimapMode] = useState<'viewport' | 'select'>('viewport');
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
   // Overall UI Text Font Size Scaling State
@@ -1394,8 +1395,8 @@ export function AudioStudioApp() {
             viewportStart={viewportStart}
             viewportEnd={viewportEnd}
             selection={selection}
-            mode={interactionMode === 'pan' ? 'viewport' : 'select'}
-            onModeChange={(m) => setInteractionMode(m === 'viewport' ? 'pan' : 'select')}
+            mode={minimapMode}
+            onModeChange={setMinimapMode}
             width={canvasDimensions.width}
             onSeekViewport={handleSeekViewport}
             onSeekPlayhead={handleSeek}

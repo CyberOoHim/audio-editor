@@ -274,8 +274,24 @@ export const MiniMap: React.FC<MiniMapProps> = React.memo(({
 
     if (miniMapMode === 'viewport') {
       // NAV MODE BEHAVIOR:
-      // Dragging viewport lens or clicking to jump/pan viewport. Selection handles never hijack clicks.
-      if (x >= vpLeft && x <= vpRight) {
+      // Dragging viewport lens or clicking to jump/pan viewport.
+      if (e.shiftKey) {
+        // Shift + Drag in Nav mode allows quick range selection without switching modes
+        activeDragMode = 'select-create';
+        if (selection && selection.end > selection.start) {
+          const distToStart = Math.abs(targetTime - selection.start);
+          const distToEnd = Math.abs(targetTime - selection.end);
+          anchorTime = distToStart < distToEnd ? selection.end : selection.start;
+        } else {
+          anchorTime = currentTime;
+        }
+        if (onSelectRegion) {
+          onSelectRegion({
+            start: Math.min(anchorTime, targetTime),
+            end: Math.max(anchorTime, targetTime)
+          });
+        }
+      } else if (x >= vpLeft && x <= vpRight) {
         activeDragMode = 'viewport-pan';
         grabOffset = targetTime - viewportStart;
       } else {
@@ -464,11 +480,10 @@ export const MiniMap: React.FC<MiniMapProps> = React.memo(({
             e.stopPropagation();
             handleSetMode('viewport');
           }}
-          title="Viewport Navigation (V): Drag viewport lens to pan timeline, or click to jump"
+          title="Viewport Navigation: Drag viewport lens to pan timeline, click to jump (Shift+Drag to select)"
         >
           <Hand size={11} />
           <span>Nav</span>
-          <span className="hotkey-badge">V</span>
         </button>
         <button
           type="button"
@@ -477,11 +492,10 @@ export const MiniMap: React.FC<MiniMapProps> = React.memo(({
             e.stopPropagation();
             handleSetMode('select');
           }}
-          title="Range Select (S): Drag to highlight audio region, drag handles to resize, double-click to select all"
+          title="Range Select: Drag to highlight audio region, drag handles to resize, double-click to select all"
         >
           <MousePointer size={11} />
           <span>Select</span>
-          <span className="hotkey-badge">S</span>
         </button>
       </div>
 
