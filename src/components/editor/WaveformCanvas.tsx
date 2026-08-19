@@ -246,33 +246,69 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, width, height);
 
-    // Render Selection Region Overlay
+    // Render Selection Region Overlay with differentiated visuals based on mode
     if (selection && selection.end > selection.start) {
       const selStartX = selection.start * zoom - scrollLeft;
       const selEndX = selection.end * zoom - scrollLeft;
       const selWidth = selEndX - selStartX;
 
-      // Selection Fill
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.2)';
-      ctx.fillRect(selStartX, 0, selWidth, height);
+      if (mode === 'select') {
+        // SELECT MODE: Primary, vibrant, with glowing purple/cyan boundaries & interactive knobs
+        ctx.fillStyle = 'rgba(139, 92, 246, 0.22)';
+        ctx.fillRect(selStartX, 0, selWidth, height);
 
-      // Left Selection Border & Handle
-      ctx.fillStyle = '#38bdf8';
-      ctx.fillRect(selStartX - 1, 0, 2, height);
-      // Left Handle Knobs
-      ctx.beginPath();
-      ctx.arc(selStartX, 12, 6, 0, Math.PI * 2);
-      ctx.arc(selStartX, height - 12, 6, 0, Math.PI * 2);
-      ctx.fill();
+        // Left Selection Border & Handle
+        ctx.fillStyle = '#a855f7';
+        ctx.fillRect(selStartX - 1, 0, 2, height);
+        // Left Handle Knobs (outer circle + inner white core)
+        ctx.beginPath();
+        ctx.arc(selStartX, 14, 6, 0, Math.PI * 2);
+        ctx.arc(selStartX, height - 14, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(selStartX, 14, 2.5, 0, Math.PI * 2);
+        ctx.arc(selStartX, height - 14, 2.5, 0, Math.PI * 2);
+        ctx.fill();
 
-      // Right Selection Border & Handle
-      ctx.fillStyle = '#38bdf8';
-      ctx.fillRect(selEndX - 1, 0, 2, height);
-      // Right Handle Knobs
-      ctx.beginPath();
-      ctx.arc(selEndX, 12, 6, 0, Math.PI * 2);
-      ctx.arc(selEndX, height - 12, 6, 0, Math.PI * 2);
-      ctx.fill();
+        // Right Selection Border & Handle
+        ctx.fillStyle = '#a855f7';
+        ctx.fillRect(selEndX - 1, 0, 2, height);
+        // Right Handle Knobs (outer circle + inner white core)
+        ctx.beginPath();
+        ctx.arc(selEndX, 14, 6, 0, Math.PI * 2);
+        ctx.arc(selEndX, height - 14, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(selEndX, 14, 2.5, 0, Math.PI * 2);
+        ctx.arc(selEndX, height - 14, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Selection Duration pill badge
+        if (selWidth >= 60) {
+          const selDur = selection.end - selection.start;
+          const durText = `${selDur >= 10 ? selDur.toFixed(2) : selDur.toFixed(3)}s`;
+          ctx.font = '10px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          const textMetrics = ctx.measureText(durText);
+          const badgeW = textMetrics.width + 12;
+          const badgeX = selStartX + selWidth / 2 - badgeW / 2;
+          ctx.fillStyle = 'rgba(11, 15, 23, 0.85)';
+          ctx.fillRect(badgeX, 4, badgeW, 14);
+          ctx.fillStyle = '#e9d5ff';
+          ctx.fillText(durText, selStartX + selWidth / 2, 5);
+        }
+      } else {
+        // PAN MODE: Selection is secondary / passive reference (subtle tint, 1px border, no grab knobs)
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+        ctx.fillRect(selStartX, 0, selWidth, height);
+
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.5)';
+        ctx.fillRect(selStartX - 1, 0, 1, height);
+        ctx.fillRect(selEndX, 0, 1, height);
+      }
     }
 
     // Render Playhead Line
@@ -292,7 +328,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
     }
 
     ctx.restore();
-  }, [currentTime, selection, zoom, scrollLeft, width, height]);
+  }, [currentTime, selection, zoom, scrollLeft, width, height, mode]);
 
   // Auto-scroll animation frame ref & state
   const autoScrollAnimRef = useRef<number | null>(null);
@@ -387,40 +423,50 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
     const clickTime = (scrollLeft + x) / zoom;
 
     const HANDLE_HIT_PX = 20; // larger hit area for touch fingers & mouse
-    let activeDragMode: DragMode = mode === 'pan' ? 'pan' : 'create-selection';
+    let activeDragMode: DragMode = 'none';
     let anchorTime = clickTime;
 
-    if (e.shiftKey) {
-      // Shift + Click / Shift + Drag to extend or create selection!
-      if (selection && selection.end > selection.start) {
-        const distToStart = Math.abs(clickTime - selection.start);
-        const distToEnd = Math.abs(clickTime - selection.end);
-        if (distToStart < distToEnd) {
-          anchorTime = selection.end;
-        } else {
-          anchorTime = selection.start;
-        }
-      } else {
-        anchorTime = currentTime;
-      }
-      const newStart = Math.min(anchorTime, clickTime);
-      const newEnd = Math.max(anchorTime, clickTime);
-      onSelectRegion({ start: newStart, end: newEnd });
-      activeDragMode = 'create-selection';
-    } else if (selection && selection.end > selection.start) {
-      const startX = selection.start * zoom - scrollLeft;
-      const endX = selection.end * zoom - scrollLeft;
-
-      if (Math.abs(x - startX) <= HANDLE_HIT_PX) {
-        activeDragMode = 'drag-handle-start';
-      } else if (Math.abs(x - endX) <= HANDLE_HIT_PX) {
-        activeDragMode = 'drag-handle-end';
-      }
-    }
-
-    // Middle click or Space/Alt creates pan directly
-    if (e.button === 1 || e.altKey) {
+    if (mode === 'pan') {
+      // PAN MODE: Always Pan directly. Selection handles never hijack Pan mode.
       activeDragMode = 'pan';
+    } else {
+      // SELECT MODE: Selection creation or adjusting handles
+      let hitHandle = false;
+
+      if (selection && selection.end > selection.start) {
+        const startX = selection.start * zoom - scrollLeft;
+        const endX = selection.end * zoom - scrollLeft;
+
+        if (Math.abs(x - startX) <= HANDLE_HIT_PX) {
+          activeDragMode = 'drag-handle-start';
+          hitHandle = true;
+        } else if (Math.abs(x - endX) <= HANDLE_HIT_PX) {
+          activeDragMode = 'drag-handle-end';
+          hitHandle = true;
+        }
+      }
+
+      if (!hitHandle && e.shiftKey) {
+        // Shift + Click / Shift + Drag to extend or create selection!
+        if (selection && selection.end > selection.start) {
+          const distToStart = Math.abs(clickTime - selection.start);
+          const distToEnd = Math.abs(clickTime - selection.end);
+          anchorTime = distToStart < distToEnd ? selection.end : selection.start;
+        } else {
+          anchorTime = currentTime;
+        }
+        const newStart = Math.min(anchorTime, clickTime);
+        const newEnd = Math.max(anchorTime, clickTime);
+        onSelectRegion({ start: newStart, end: newEnd });
+        activeDragMode = 'create-selection';
+      } else if (!hitHandle) {
+        activeDragMode = 'create-selection';
+      }
+
+      // Middle click or Alt key forces temporary pan even in select mode
+      if (e.button === 1 || e.altKey) {
+        activeDragMode = 'pan';
+      }
     }
 
     setDragMode(activeDragMode);
@@ -444,6 +490,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
 
     // Hover cursor feedback when not dragging
     if (dragMode === 'none') {
+      if (mode === 'pan') {
+        setHoverCursor('grab');
+        return;
+      }
+
+      // Select mode hover feedback
       if (selection && selection.end > selection.start) {
         const startX = selection.start * zoom - scrollLeft;
         const endX = selection.end * zoom - scrollLeft;
@@ -452,7 +504,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
           return;
         }
       }
-      setHoverCursor(mode === 'pan' ? 'grab' : 'crosshair');
+      setHoverCursor('crosshair');
       return;
     }
 
@@ -506,12 +558,18 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
   const handlePointerUp = (e: React.PointerEvent) => {
     stopAutoScroll();
     const rect = containerRef.current?.getBoundingClientRect();
-    if (rect) {
+    if (rect && buffer) {
       const x = e.clientX - rect.left;
       const clickTime = Math.max(0, Math.min(duration, (scrollLeft + x) / zoom));
-      // If moved less than 5 pixels and not Shift-clicking, treat as single tap / click to position playhead
-      if (Math.abs(x - dragStartRef.current.x) < 5 && !e.shiftKey && dragMode === 'create-selection') {
-        onSeek(clickTime);
+      const dist = Math.abs(x - dragStartRef.current.x);
+
+      // Single tap / click without drag positions playhead
+      if (dist < 5 && !e.shiftKey) {
+        if (mode === 'select' && dragMode === 'create-selection') {
+          onSeek(clickTime);
+        } else if (mode === 'pan' && dragMode === 'pan') {
+          onSeek(clickTime);
+        }
       }
     }
 
@@ -520,6 +578,24 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     } catch {
       // Ignored
+    }
+  };
+
+  const handleDoubleClick = (e: React.PointerEvent) => {
+    if (!buffer || duration <= 0) return;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = e.clientX - rect.left;
+    const clickTime = Math.max(0, Math.min(duration, (scrollLeft + x) / zoom));
+
+    if (mode === 'select') {
+      // Double click in Select mode selects all audio
+      onSelectRegion({ start: 0, end: duration });
+    } else {
+      // Double click in Pan mode centers clicked point and seeks playhead
+      onSeek(clickTime);
+      const newScroll = Math.max(0, Math.min(duration * zoom - width, clickTime * zoom - width / 2));
+      onScrollChange(newScroll);
     }
   };
 
@@ -597,6 +673,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
+      onDoubleClick={handleDoubleClick}
       style={{
         cursor: !buffer
           ? 'default'
@@ -616,27 +693,29 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
           <div className="touch-mode-dock">
             <button
               type="button"
-              className={`touch-mode-btn ${mode === 'pan' ? 'active' : ''}`}
+              className={`touch-mode-btn pan-btn ${mode === 'pan' ? 'active' : ''}`}
               onClick={(e) => {
                 e.stopPropagation();
                 handleModeChange('pan');
               }}
-              title="Pan / Scroll Mode: Swipe to scroll waveform"
+              title="Pan / Scroll Mode (V): Drag anywhere to scroll waveform"
             >
               <Hand size={12} />
               <span>Pan</span>
+              <span className="hotkey-badge">V</span>
             </button>
             <button
               type="button"
-              className={`touch-mode-btn ${mode === 'select' ? 'active' : ''}`}
+              className={`touch-mode-btn select-btn ${mode === 'select' ? 'active' : ''}`}
               onClick={(e) => {
                 e.stopPropagation();
                 handleModeChange('select');
               }}
-              title="Select Mode: Drag to highlight audio region"
+              title="Select Mode (S): Drag to highlight audio region, drag handles to resize, double-click to select all"
             >
               <MousePointer size={12} />
               <span>Select</span>
+              <span className="hotkey-badge">S</span>
             </button>
           </div>
 
