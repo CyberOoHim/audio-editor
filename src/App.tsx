@@ -505,6 +505,12 @@ export function AudioStudioApp() {
         }
       } else if (e.key === 'Escape') {
         setSelection(null);
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
+        setInteractionMode('pan');
+        showToast('Navigation Mode [V]', 'info');
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 's' || e.key === 'S')) {
+        setInteractionMode('select');
+        showToast('Selection Mode [S]', 'info');
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selection && selection.end > selection.start) {
           e.preventDefault();
@@ -515,7 +521,7 @@ export function AudioStudioApp() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [playState, currentTime, selection, currentBuffer, scrollLeft, zoom, canvasDimensions.width, showToast, handleSelectAll, handleCut, handleUndo, handleRedo]);
+  }, [playState, currentTime, selection, currentBuffer, scrollLeft, zoom, canvasDimensions.width, showToast, handleSelectAll, handleCut, handleUndo, handleRedo, setInteractionMode]);
 
   const handleToggleTimeFormat = useCallback(() => {
     setTimeFormat((prev) => {
@@ -1387,6 +1393,8 @@ export function AudioStudioApp() {
             viewportStart={viewportStart}
             viewportEnd={viewportEnd}
             selection={selection}
+            mode={interactionMode === 'pan' ? 'viewport' : 'select'}
+            onModeChange={(m) => setInteractionMode(m === 'viewport' ? 'pan' : 'select')}
             width={canvasDimensions.width}
             onSeekViewport={handleSeekViewport}
             onSeekPlayhead={handleSeek}
