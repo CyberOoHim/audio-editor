@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, Square, Pause, Play, Trash2, Check, Radio } from 'lucide-react';
+import { Mic, Square, Pause, Play, Trash2, Check, Radio, Volume2 } from 'lucide-react';
 import { Modal } from '../common/Modal';
+import { Slider } from '../common/Slider';
 import { StudioRecorder, type RecorderMetrics } from '../../audio/Recorder';
 import { LiveVisualizer } from './LiveVisualizer';
 import { VuMeter } from './VuMeter';
@@ -11,6 +12,26 @@ export interface RecordModalProps {
   onClose: () => void;
   onSaveRecording: (buffer: AudioBuffer, fileName: string, action: 'editor' | 'library') => void;
 }
+
+const MIC_GAIN_STORAGE_KEY = 'audio_editor_mic_gain_boost_db';
+
+const isAppleDevice = typeof navigator !== 'undefined' && (
+  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+);
+
+const getInitialGainBoost = (): number => {
+  try {
+    const saved = localStorage.getItem(MIC_GAIN_STORAGE_KEY);
+    if (saved !== null) {
+      const val = parseFloat(saved);
+      if (!isNaN(val) && val >= 0 && val <= 36) {
+        return val;
+      }
+    }
+  } catch {}
+  return 0;
+};
 
 export const RecordModal: React.FC<RecordModalProps> = ({
   isOpen,
@@ -27,10 +48,13 @@ export const RecordModal: React.FC<RecordModalProps> = ({
   const [visMode, setVisMode] = useState<'oscilloscope' | 'frequency'>('oscilloscope');
   const [recordedBuffer, setRecordedBuffer] = useState<AudioBuffer | null>(null);
   const [trackTitle, setTrackTitle] = useState('');
+  const [gainBoost, setGainBoost] = useState<number>(() => getInitialGainBoost());
+  const gainBoostRef = useRef(gainBoost);
+  gainBoostRef.current = gainBoost;
 
   useEffect(() => {
     if (isOpen) {
-      recorderRef.current = new StudioRecorder();
+      recorderRef.current = new StudioRecorder(gainBoostRef.current);
       recorderRef.current.onMetrics((m) => {
         setMetrics(m);
         setDuration(m.duration);
@@ -56,10 +80,22 @@ export const RecordModal: React.FC<RecordModalProps> = ({
     };
   }, [isOpen]);
 
+  const handleGainBoostChange = (val: number) => {
+    const rounded = Math.round(val * 10) / 10;
+    const clamped = Math.max(0, Math.min(30, rounded));
+    setGainBoost(clamped);
+    try {
+      localStorage.setItem(MIC_GAIN_STORAGE_KEY, clamped.toString());
+    } catch {}
+    if (recorderRef.current) {
+      recorderRef.current.setGain(clamped);
+    }
+  };
+
   const handleStartRecord = async () => {
     try {
       if (recorderRef.current) {
-        await recorderRef.current.start();
+        await recorderRef.current.start(gainBoost);
         setIsRecording(true);
         setIsPaused(false);
         setRecordedBuffer(null);
@@ -187,6 +223,106 @@ export const RecordModal: React.FC<RecordModalProps> = ({
 
         {/* Stereo VU Meter */}
         <VuMeter peakL={metrics.peakL} peakR={metrics.peakR} />
+
+        {/* Mic Gain Boost Control */}
+        <div
+          className="form-group"
+          style={{
+            width: '100%',
+            backgroundColor: 'var(--bg-surface)',
+            padding: '10px 12px',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--border-medium)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <Volume2 size={15} color="var(--accent-cyan)" />
+              <span style={{ fontWeight: 600, fontSize: 'calc(12px * var(--ui-font-scale, 1))', color: 'var(--text-primary)' }}>
+                Mic Gain Boost
+              </span>
+              {isAppleDevice && (
+                <span
+                  style={{
+                    fontSize: 'calc(10px * var(--ui-font-scale, 1))',
+                    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+                    color: 'var(--accent-cyan)',
+                    padding: '1px 5px',
+                    borderRadius: 'var(--radius-sm)',
+                    fontWeight: 600,
+                    border: '1px solid rgba(56, 189, 248, 0.3)'
+                  }}
+                  title="iOS microphones record quietly in browsers; gain boost compensates for this"
+                >
+                  iOS / iPadOS
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className="mono" style={{ color: 'var(--accent-cyan)', fontWeight: 700, fontSize: 'calc(13px * var(--ui-font-scale, 1))' }}>
+                {gainBoost > 0 ? `+${gainBoost.toFixed(1)}` : gainBoost.toFixed(1)} dB
+              </span>
+              <span style={{ fontSize: 'calc(11px * var(--ui-font-scale, 1))', color: 'var(--text-muted)' }}>
+                ({Math.pow(10, gainBoost / 20).toFixed(1)}×)
+              </span>
+            </div>
+          </div>
+
+          <Slider
+            value={gainBoost}
+            min={0}
+            max={30}
+            step={0.5}
+            unit="dB"
+            onChange={handleGainBoostChange}
+          />
+
+          {/* Quick Presets */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 'calc(10.5px * var(--ui-font-scale, 1))', color: 'var(--text-muted)', marginRight: 2 }}>
+              Presets:
+            </span>
+            {[
+              { label: '0 dB (1×)', value: 0 },
+              { label: '+6 dB (2×)', value: 6 },
+              { label: '+12 dB (4×)', value: 12 },
+              { label: '+18 dB (8×)', value: 18 },
+              { label: '+24 dB (16×)', value: 24 }
+            ].map((p) => (
+              <button
+                key={p.value}
+                type="button"
+                className={`btn btn-sm ${Math.abs(gainBoost - p.value) < 0.1 ? 'btn-primary' : 'btn-secondary'}`}
+                style={{
+                  height: 22,
+                  padding: '0 6px',
+                  fontSize: 'calc(10.5px * var(--ui-font-scale, 1))'
+                }}
+                onClick={() => handleGainBoostChange(p.value)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {gainBoost > 0 && (
+            <div
+              style={{
+                fontSize: 'calc(10.5px * var(--ui-font-scale, 1))',
+                color: 'var(--text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4
+              }}
+            >
+              <span>ℹ️ Real-time boost applied directly to recording & live visualizer.</span>
+            </div>
+          )}
+        </div>
 
         {/* Concise Recording Limit Hint */}
         <div

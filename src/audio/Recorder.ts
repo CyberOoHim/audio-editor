@@ -12,6 +12,7 @@ export class StudioRecorder {
   private mediaStream: MediaStream | null = null;
   private audioCtx: AudioContext | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private gainNode: GainNode | null = null;
   private processorNode: ScriptProcessorNode | null = null;
   private analyserNode: AnalyserNode | null = null;
   
@@ -19,6 +20,7 @@ export class StudioRecorder {
   private rightChannelData: Float32Array[] = [];
   private recordedSamples: number = 0;
   private sampleRate: number = 48000;
+  private gainDb: number = 0;
   
   private isRecording: boolean = false;
   private isPaused: boolean = false;
@@ -27,8 +29,30 @@ export class StudioRecorder {
   private metricsListeners: Set<MetricsCallback> = new Set();
   private animFrameId: number | null = null;
 
-  public async start(): Promise<void> {
+  constructor(initialGainDb: number = 0) {
+    this.gainDb = initialGainDb;
+  }
+
+  public setGain(gainDb: number): void {
+    this.gainDb = gainDb;
+    if (this.gainNode && this.audioCtx) {
+      const linear = Math.pow(10, gainDb / 20);
+      const now = this.audioCtx.currentTime;
+      this.gainNode.gain.cancelScheduledValues(now);
+      this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
+      this.gainNode.gain.linearRampToValueAtTime(linear, now + 0.05);
+    }
+  }
+
+  public getGain(): number {
+    return this.gainDb;
+  }
+
+  public async start(initialGainDb?: number): Promise<void> {
     this.stop();
+    if (initialGainDb !== undefined) {
+      this.gainDb = initialGainDb;
+    }
     this.leftChannelData = [];
     this.rightChannelData = [];
     this.recordedSamples = 0;
@@ -55,12 +79,18 @@ export class StudioRecorder {
       this.mediaStream = stream;
 
       this.sourceNode = this.audioCtx.createMediaStreamSource(this.mediaStream);
+
+      // Gain boost node
+      this.gainNode = this.audioCtx.createGain();
+      const linearGain = Math.pow(10, this.gainDb / 20);
+      this.gainNode.gain.setValueAtTime(linearGain, this.audioCtx.currentTime);
+      this.sourceNode.connect(this.gainNode);
       
-      // Analyser node for live visualizer
+      // Analyser node for live visualizer (connected to gain output)
       this.analyserNode = this.audioCtx.createAnalyser();
       this.analyserNode.fftSize = 512;
       this.analyserNode.smoothingTimeConstant = 0.7;
-      this.sourceNode.connect(this.analyserNode);
+      this.gainNode.connect(this.analyserNode);
 
       // Buffer processor (4096 buffer size)
       this.processorNode = this.audioCtx.createScriptProcessor(4096, 2, 2);
@@ -82,7 +112,7 @@ export class StudioRecorder {
         this.recordedSamples += inputL.length;
       };
 
-      this.sourceNode.connect(this.processorNode);
+      this.gainNode.connect(this.processorNode);
       this.processorNode.connect(this.audioCtx.destination);
 
       this.isRecording = true;
@@ -95,6 +125,10 @@ export class StudioRecorder {
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
         this.mediaStream = null;
+      }
+      if (this.gainNode) {
+        this.gainNode.disconnect();
+        this.gainNode = null;
       }
       if (this.audioCtx && this.audioCtx.state !== 'closed') {
         this.audioCtx.close().catch(() => {});
@@ -132,6 +166,11 @@ export class StudioRecorder {
       this.processorNode.disconnect();
       this.processorNode.onaudioprocess = null;
       this.processorNode = null;
+    }
+
+    if (this.gainNode) {
+      this.gainNode.disconnect();
+      this.gainNode = null;
     }
 
     if (this.sourceNode) {
@@ -179,6 +218,11 @@ export class StudioRecorder {
       this.processorNode.disconnect();
       this.processorNode.onaudioprocess = null;
       this.processorNode = null;
+    }
+
+    if (this.gainNode) {
+      this.gainNode.disconnect();
+      this.gainNode = null;
     }
 
     if (this.sourceNode) {
