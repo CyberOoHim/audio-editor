@@ -38,7 +38,7 @@ export const GainModal: React.FC<GainModalProps> = ({
             Cancel
           </button>
           <button className="btn btn-primary" onClick={handleApply}>
-            <Volume2 size={14} /> Apply {gainDb > 0 ? `+${gainDb}` : gainDb} dB Gain
+            <Volume2 size={14} /> Apply Gain ({gainDb > 0 ? `+${gainDb}` : gainDb} dB)
           </button>
         </>
       }

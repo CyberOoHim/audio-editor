@@ -77,7 +77,7 @@ export const GeneratorModal: React.FC<GeneratorModalProps> = ({
             Cancel
           </button>
           <button className="btn btn-primary" onClick={handleApply}>
-            <Radio size={15} /> Generate {isNoise ? type.replace('-', ' ') : `${frequency}Hz ${type}`} ({duration}s)
+            <Radio size={15} /> Generate {isNoise ? (type === 'pink-noise' ? 'Pink Noise' : 'White Noise') : `${frequency}Hz ${type.charAt(0).toUpperCase() + type.slice(1)}`} ({duration}s)
           </button>
         </>
       }

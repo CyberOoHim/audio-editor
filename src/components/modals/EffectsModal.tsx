@@ -107,7 +107,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
             disabled={isProcessing}
           >
             <Sparkles size={14} />
-            {isProcessing ? 'Processing DSP...' : 'Apply Effects'}
+            {isProcessing ? 'Applying...' : 'Apply Effects'}
           </button>
         </>
       }

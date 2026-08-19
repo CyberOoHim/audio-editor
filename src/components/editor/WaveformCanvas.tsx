@@ -581,7 +581,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
     }
   };
 
-  const handleDoubleClick = (e: React.PointerEvent) => {
+  const handleDoubleClick = (e: React.MouseEvent) => {
     if (!buffer || duration <= 0) return;
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;

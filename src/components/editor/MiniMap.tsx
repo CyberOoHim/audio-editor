@@ -418,7 +418,7 @@ export const MiniMap: React.FC<MiniMapProps> = React.memo(({
     }
   };
 
-  const handleDoubleClick = (e: React.PointerEvent) => {
+  const handleDoubleClick = (e: React.MouseEvent) => {
     if (duration <= 0) return;
     const rect = overlayCanvasRef.current?.getBoundingClientRect();
     if (!rect) return;

@@ -45,7 +45,7 @@ export const SilenceModal: React.FC<SilenceModalProps> = ({
             Cancel
           </button>
           <button className="btn btn-primary" onClick={handleApply}>
-            <PlusCircle size={15} /> Insert {duration}s Silence
+            <PlusCircle size={15} /> Insert Silence (${duration}s)
           </button>
         </>
       }

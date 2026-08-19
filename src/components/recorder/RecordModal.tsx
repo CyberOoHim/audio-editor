@@ -66,7 +66,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
       }
     } catch (err) {
       console.error(err);
-      showToast('Microphone access denied or not available.', 'error');
+      showToast('Microphone access denied', 'error');
     }
   };
 
@@ -88,7 +88,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
     setIsPaused(false);
     if (buffer) {
       setRecordedBuffer(buffer);
-      showToast(`Recording captured (${buffer.duration.toFixed(1)}s)`, 'success');
+      showToast(`Recording ready (${buffer.duration.toFixed(1)}s)`, 'success');
     }
   };
 
@@ -204,7 +204,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, flexWrap: 'wrap', width: '100%' }}>
           {!isRecording && !recordedBuffer && (
             <button className="btn btn-primary btn-lg" style={{ width: '100%' }} onClick={handleStartRecord}>
-              <Mic size={18} /> Start Studio Recording
+              <Mic size={18} /> Start Recording
             </button>
           )}
 

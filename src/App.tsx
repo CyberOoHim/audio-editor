@@ -46,7 +46,7 @@ import { audioEngine } from './audio/AudioEngine';
 import * as BufferUtils from './audio/BufferUtils';
 import { EffectsChain } from './audio/EffectsChain';
 import { exportAudio, triggerDownload } from './audio/encoders/ExportManager';
-import { isSupportedAudioFile, SUPPORTED_FORMATS_SUMMARY, SUPPORTED_UPLOAD_ACCEPT } from './audio/audioFormats';
+import { isSupportedAudioFile, SUPPORTED_UPLOAD_ACCEPT } from './audio/audioFormats';
 
 import { FileManager } from './components/file-manager/FileManager';
 import { WaveformCanvas } from './components/editor/WaveformCanvas';
@@ -133,7 +133,7 @@ export function AudioStudioApp() {
   const handleDecreaseFont = () => {
     setFontScale((prev) => {
       const next = Math.max(0.8, Math.round((prev - 0.1) * 10) / 10);
-      showToast(`UI Font Size: ${Math.round(next * 100)}%`, 'info');
+      showToast(`UI scale: ${Math.round(next * 100)}%`, 'info');
       return next;
     });
   };
@@ -141,14 +141,14 @@ export function AudioStudioApp() {
   const handleIncreaseFont = () => {
     setFontScale((prev) => {
       const next = Math.min(1.5, Math.round((prev + 0.1) * 10) / 10);
-      showToast(`UI Font Size: ${Math.round(next * 100)}%`, 'info');
+      showToast(`UI scale: ${Math.round(next * 100)}%`, 'info');
       return next;
     });
   };
 
   const handleResetFont = () => {
     setFontScale(1.0);
-    showToast('UI Font Size: 100% (Default)', 'info');
+    showToast('UI scale: 100% (Default)', 'info');
   };
 
   // Responsive UI & Modals State
@@ -238,13 +238,13 @@ export function AudioStudioApp() {
         setZoom(fitZoom);
       }
 
-      showToast(`Loaded "${fileItem.name}"`, 'success');
+      showToast(`Loaded: ${fileItem.name}`, 'success');
       if (window.innerWidth <= 960) {
         setSidebarOpen(false);
       }
     } catch (err) {
       console.error(err);
-      showToast('Error decoding audio file.', 'error');
+      showToast('Failed to decode audio', 'error');
     }
   }, [canvasDimensions.width, showToast]);
 
@@ -413,7 +413,7 @@ export function AudioStudioApp() {
     const newBuffer = BufferUtils.deleteRegion(ctx, currentBuffer, selection.start, selection.end);
     audioEngine.setBufferDirectly(newBuffer, `Cut ${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s`);
     setSelection(null);
-    showToast('Cut selected region', 'success');
+    showToast('Selection cut', 'success');
   }, [currentBuffer, selection, showToast]);
 
   // Keyboard Shortcuts (Hotkeys)
@@ -448,7 +448,7 @@ export function AudioStudioApp() {
           const vpEnd = Math.min(currentBuffer ? currentBuffer.duration : 0, (scrollLeft + canvasDimensions.width) / zoom);
           if (vpEnd > vpStart) {
             setSelection({ start: vpStart, end: vpEnd });
-            showToast(`Selected visible viewport (${vpStart.toFixed(2)}s - ${vpEnd.toFixed(2)}s)`, 'info');
+            showToast(`Selected viewport (${vpStart.toFixed(2)}s – ${vpEnd.toFixed(2)}s)`, 'info');
           }
         } else {
           handleSelectAll();
@@ -463,7 +463,7 @@ export function AudioStudioApp() {
           } else {
             setSelection({ start: curTime, end: Math.min(trackDur, curTime + 1) });
           }
-          showToast(`In-Point set: ${curTime.toFixed(2)}s`, 'info');
+          showToast(`In-point: ${curTime.toFixed(2)}s`, 'info');
         }
       } else if (e.key === 'o' || e.key === 'O' || e.key === ']') {
         if (currentBuffer) {
@@ -474,19 +474,19 @@ export function AudioStudioApp() {
           } else {
             setSelection({ start: Math.max(0, curTime - 1), end: curTime });
           }
-          showToast(`Out-Point set: ${curTime.toFixed(2)}s`, 'info');
+          showToast(`Out-point: ${curTime.toFixed(2)}s`, 'info');
         }
       } else if (e.shiftKey && e.key === 'Home') {
         if (currentBuffer) {
           e.preventDefault();
           setSelection({ start: 0, end: currentTime });
-          showToast(`Selected from Start to Playhead (0.00s - ${currentTime.toFixed(2)}s)`, 'info');
+          showToast(`Selected: 0.00s – ${currentTime.toFixed(2)}s`, 'info');
         }
       } else if (e.shiftKey && e.key === 'End') {
         if (currentBuffer) {
           e.preventDefault();
           setSelection({ start: currentTime, end: currentBuffer.duration });
-          showToast(`Selected from Playhead to End (${currentTime.toFixed(2)}s - ${currentBuffer.duration.toFixed(2)}s)`, 'info');
+          showToast(`Selected: ${currentTime.toFixed(2)}s – ${currentBuffer.duration.toFixed(2)}s`, 'info');
         }
       } else if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
         if (currentBuffer) {
@@ -507,10 +507,10 @@ export function AudioStudioApp() {
         setSelection(null);
       } else if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
         setInteractionMode('pan');
-        showToast('Navigation Mode [V]', 'info');
+        showToast('Pan mode [V]', 'info');
       } else if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 's' || e.key === 'S')) {
         setInteractionMode('select');
-        showToast('Selection Mode [S]', 'info');
+        showToast('Select mode [S]', 'info');
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selection && selection.end > selection.start) {
           e.preventDefault();
@@ -534,7 +534,7 @@ export function AudioStudioApp() {
   const handlePlaybackRateChange = useCallback((rate: number) => {
     setPlaybackRate(rate);
     audioEngine.setPlaybackRate(rate);
-    showToast(`Playback speed set to ${rate}x`, 'info');
+    showToast(`Speed: ${rate}x`, 'info');
   }, [showToast]);
 
   const handleSilence = useCallback(() => {
@@ -542,7 +542,7 @@ export function AudioStudioApp() {
     const ctx = audioEngine.getContext();
     const newBuffer = BufferUtils.muteRegion(ctx, currentBuffer, selection.start, selection.end);
     audioEngine.setBufferDirectly(newBuffer, `Silenced ${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s`);
-    showToast('Silenced selection', 'success');
+    showToast('Selection silenced', 'success');
   }, [currentBuffer, selection, showToast]);
 
   const handleInsertSilence = useCallback((
@@ -572,7 +572,7 @@ export function AudioStudioApp() {
     }
 
     audioEngine.setBufferDirectly(newBuffer, label);
-    showToast(label, 'success');
+    showToast(`Silence inserted (${durationSec}s)`, 'success');
   }, [currentBuffer, selection, currentTime, showToast]);
 
   const handleQuickFadeIn = useCallback(() => {
@@ -589,7 +589,7 @@ export function AudioStudioApp() {
     const safeDuration = Math.min(duration, Math.max(0.01, currentBuffer.duration - startSec));
     const newBuffer = BufferUtils.applyFade(ctx, currentBuffer, startSec, safeDuration, 'in', fadeCurve);
     audioEngine.setBufferDirectly(newBuffer, `Fade In (${safeDuration.toFixed(2)}s, ${fadeCurve})`);
-    showToast(`Applied Fade In (${safeDuration.toFixed(2)}s)`, 'success');
+    showToast(`Fade In applied (${safeDuration.toFixed(2)}s)`, 'success');
   }, [currentBuffer, selection, fadeInDuration, fadeCurve, showToast]);
 
   const handleQuickFadeOut = useCallback(() => {
@@ -606,7 +606,7 @@ export function AudioStudioApp() {
     const safeDuration = Math.min(duration, Math.max(0.01, currentBuffer.duration - startSec));
     const newBuffer = BufferUtils.applyFade(ctx, currentBuffer, startSec, safeDuration, 'out', fadeCurve);
     audioEngine.setBufferDirectly(newBuffer, `Fade Out (${safeDuration.toFixed(2)}s, ${fadeCurve})`);
-    showToast(`Applied Fade Out (${safeDuration.toFixed(2)}s)`, 'success');
+    showToast(`Fade Out applied (${safeDuration.toFixed(2)}s)`, 'success');
   }, [currentBuffer, selection, fadeOutDuration, fadeCurve, showToast]);
 
   const handleOpenFadeModal = useCallback((type: FadeType = 'in') => {
@@ -646,7 +646,7 @@ export function AudioStudioApp() {
     const newBuffer = BufferUtils.applyFade(ctx, currentBuffer, startSec, safeDuration, type, curve);
     const label = `${type === 'in' ? 'Fade In' : 'Fade Out'} (${safeDuration.toFixed(2)}s, ${curve})`;
     audioEngine.setBufferDirectly(newBuffer, label);
-    showToast(`Applied ${label}`, 'success');
+    showToast(`Fade ${type === 'in' ? 'In' : 'Out'} applied (${safeDuration.toFixed(2)}s)`, 'success');
   }, [currentBuffer, selection, currentTime, showToast]);
 
   const handleApplyGain = useCallback((gainDb: number, target: 'selection' | 'all') => {
@@ -656,7 +656,7 @@ export function AudioStudioApp() {
     const endSec = target === 'selection' && selection ? selection.end : undefined;
     const newBuffer = BufferUtils.applyGain(ctx, currentBuffer, gainDb, startSec, endSec);
     audioEngine.setBufferDirectly(newBuffer, `Gain ${gainDb > 0 ? '+' : ''}${gainDb}dB`);
-    showToast(`Applied ${gainDb > 0 ? '+' : ''}${gainDb}dB gain`, 'success');
+    showToast(`Gain applied (${gainDb > 0 ? '+' : ''}${gainDb} dB)`, 'success');
   }, [currentBuffer, selection, showToast]);
 
   const handleApplyNormalize = useCallback((targetDb: number = -0.1, scope: 'all' | 'selection' = 'all') => {
@@ -667,7 +667,7 @@ export function AudioStudioApp() {
     const newBuffer = BufferUtils.normalizeBuffer(ctx, currentBuffer, targetDb, startSec, endSec);
     const label = `Normalize to ${targetDb > 0 ? `+${targetDb}` : targetDb}dBFS (${scope})`;
     audioEngine.setBufferDirectly(newBuffer, label);
-    showToast(`Normalized to ${targetDb}dBFS`, 'success');
+    showToast(`Normalized to ${targetDb} dBFS`, 'success');
   }, [currentBuffer, selection, showToast]);
 
   const handleGenerateSignal = useCallback(async (settings: SignalGeneratorSettings) => {
@@ -683,8 +683,8 @@ export function AudioStudioApp() {
 
     const isNoise = settings.type === 'white-noise' || settings.type === 'pink-noise';
     const genName = isNoise
-      ? `${settings.type.replace('-', ' ')} (${settings.durationSec}s)`
-      : `${settings.frequency}Hz ${settings.type} (${settings.durationSec}s)`;
+      ? `${settings.type === 'pink-noise' ? 'Pink Noise' : 'White Noise'} (${settings.durationSec}s)`
+      : `${settings.frequency}Hz ${settings.type.charAt(0).toUpperCase() + settings.type.slice(1)} (${settings.durationSec}s)`;
 
     if (settings.placement === 'new-file' || !currentBuffer) {
       const res = await exportAudio(genBuffer, {
@@ -712,7 +712,7 @@ export function AudioStudioApp() {
 
       await loadData();
       loadFileToEditor(savedFile);
-      showToast(`Generated and loaded "${genName}"`, 'success');
+      showToast(`Generated: ${genName}`, 'success');
       return;
     }
 
@@ -727,7 +727,7 @@ export function AudioStudioApp() {
     }
 
     audioEngine.setBufferDirectly(resultBuffer, `Inserted ${genName}`);
-    showToast(`Inserted ${genName}`, 'success');
+    showToast(`Signal inserted (${genName})`, 'success');
   }, [currentBuffer, selection, currentTime, activeFolderId, loadData, loadFileToEditor, showToast]);
 
   const handleReverse = useCallback(() => {
@@ -737,7 +737,7 @@ export function AudioStudioApp() {
     const endSec = selection ? selection.end : undefined;
     const newBuffer = BufferUtils.reverseBuffer(ctx, currentBuffer, startSec, endSec);
     audioEngine.setBufferDirectly(newBuffer, 'Reverse audio');
-    showToast('Reversed audio', 'success');
+    showToast('Audio reversed', 'success');
   }, [currentBuffer, selection, showToast]);
 
   const handleInvert = useCallback(() => {
@@ -752,7 +752,7 @@ export function AudioStudioApp() {
 
   const handleSplit = useCallback(async () => {
     if (!currentBuffer || currentTime <= 0 || currentTime >= currentBuffer.duration) {
-      showToast('Position playhead within track to split', 'info');
+      showToast('Set playhead to split point', 'info');
       return;
     }
     const ctx = audioEngine.getContext();
@@ -788,7 +788,7 @@ export function AudioStudioApp() {
     const updatedFiles = await getAllAudioFiles();
     setFiles(updatedFiles);
     await refreshStorage();
-    showToast('Track split into two parts', 'success');
+    showToast(`Track split at ${currentTime.toFixed(2)}s`, 'success');
   }, [currentBuffer, currentTime, currentFileName, activeFolderId, refreshStorage, showToast]);
 
   const handleApplyEffects = useCallback(async (
@@ -800,17 +800,21 @@ export function AudioStudioApp() {
     if (!currentBuffer) return;
     const newBuffer = await EffectsChain.renderEffects(currentBuffer, eq, filters, comp, speed);
     audioEngine.setBufferDirectly(newBuffer, 'Applied EQ & DSP Effects');
-    showToast('Applied Studio DSP Effects', 'success');
+    showToast('Effects applied', 'success');
   }, [currentBuffer, showToast]);
 
-  const handleExport = useCallback(async (settings: ExportSettings, destination: 'download' | 'library') => {
+  const handleExport = useCallback(async (
+    settings: ExportSettings,
+    destination: 'download' | 'library',
+    onProgress?: (progress: number) => void
+  ) => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
-    const result = await exportAudio(currentBuffer, settings, selection, ctx);
+    const result = await exportAudio(currentBuffer, settings, selection, ctx, onProgress);
 
     if (destination === 'download') {
       triggerDownload(result.blob, result.fileName);
-      showToast(`Exported ${result.fileName}`, 'success');
+      showToast(`Exported: ${result.fileName}`, 'success');
     } else {
       const targetBuffer = settings.exportScope === 'selection' && selection
         ? BufferUtils.sliceBuffer(ctx, currentBuffer, selection.start, selection.end)
@@ -833,7 +837,7 @@ export function AudioStudioApp() {
       const updatedFiles = await getAllAudioFiles();
       setFiles(updatedFiles);
       await refreshStorage();
-      showToast(`Saved "${saved.name}" to Library`, 'success');
+      showToast(`Saved to Library: ${saved.name}`, 'success');
     }
   }, [currentBuffer, selection, activeFolderId, refreshStorage, showToast]);
 
@@ -871,9 +875,9 @@ export function AudioStudioApp() {
       setActiveFileId(saved.id);
       setCurrentFileName(saved.name);
       await audioEngine.loadBuffer(buffer, `Recorded "${fileName}"`);
-      showToast(`Loaded recording "${fileName}"`, 'success');
+      showToast(`Loaded: ${fileName}`, 'success');
     } else {
-      showToast(`Saved recording "${fileName}" to Recordings`, 'success');
+      showToast(`Saved: ${fileName}`, 'success');
     }
   }, [refreshStorage, showToast]);
 
@@ -944,7 +948,7 @@ export function AudioStudioApp() {
       if (firstSavedFile && firstDecodedBuffer) {
         await loadFileToEditor(firstSavedFile, firstDecodedBuffer);
         if (imported > 1) {
-          showToast(`Loaded "${firstSavedFile.name}" into workspace (${imported} files added to library)`, 'success');
+          showToast(`Loaded: ${firstSavedFile.name} (+${imported - 1} imported)`, 'success');
         }
       } else if (imported > 0) {
         const latestFile = updatedFiles[updatedFiles.length - 1];
@@ -954,18 +958,15 @@ export function AudioStudioApp() {
       }
     } else {
       if (imported > 0) {
-        showToast(`Imported ${imported} audio file(s) to library`, 'success');
+        showToast(`Imported ${imported} file${imported > 1 ? 's' : ''}`, 'success');
       }
     }
 
     if (skippedFiles.length > 0) {
       if (imported === 0) {
-        showToast(
-          `Unsupported file format: "${skippedFiles[0]}". Please select supported audio files (${SUPPORTED_FORMATS_SUMMARY})`,
-          'error'
-        );
+        showToast(`Unsupported format: ${skippedFiles[0]}`, 'error');
       } else {
-        showToast(`Skipped ${skippedFiles.length} unsupported or unreadable file(s)`, 'warning');
+        showToast(`Skipped ${skippedFiles.length} invalid file${skippedFiles.length > 1 ? 's' : ''}`, 'warning');
       }
     }
   }, [activeFolderId, loadFileToEditor, refreshStorage, showToast]);
@@ -982,7 +983,7 @@ export function AudioStudioApp() {
     await createFolder(name, null, color);
     const updated = await db.folders.toArray();
     setFolders(updated);
-    showToast(`Folder "${name}" created`, 'success');
+    showToast(`Created folder "${name}"`, 'success');
   }, [showToast]);
 
   const handleRenameFolder = useCallback(async (id: string, newName: string) => {
@@ -1032,10 +1033,10 @@ export function AudioStudioApp() {
   }, [currentBuffer, canUndo, showToast]);
 
   const handleExportZip = useCallback(async () => {
-    showToast('Generating .ZIP backup archive...', 'info');
+    showToast('Exporting ZIP backup...', 'info');
     const zipBlob = await exportAllToZip();
     triggerDownload(zipBlob, `audiocraft_backup_${new Date().toISOString().slice(0, 10)}.zip`);
-    showToast('Backup .ZIP downloaded', 'success');
+    showToast('ZIP backup exported', 'success');
   }, [showToast]);
 
   // Stable Memoized Modal and UI Toggles
@@ -1063,7 +1064,7 @@ export function AudioStudioApp() {
       }
     }
     if (newSelection) {
-      showToast(`Selected ${(newSelection.end - newSelection.start).toFixed(2)}s (${newSelection.start.toFixed(2)}s - ${newSelection.end.toFixed(2)}s)`, 'info');
+      showToast(`Selected: ${(newSelection.end - newSelection.start).toFixed(2)}s (${newSelection.start.toFixed(2)}s – ${newSelection.end.toFixed(2)}s)`, 'info');
     } else {
       showToast('Selection cleared', 'info');
     }

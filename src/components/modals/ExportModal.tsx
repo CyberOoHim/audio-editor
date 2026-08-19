@@ -11,7 +11,11 @@ export interface ExportModalProps {
   selection: AudioSelection | null;
   currentFileName: string;
   isEdited?: boolean;
-  onExport: (settings: ExportSettings, destination: 'download' | 'library') => Promise<void>;
+  onExport: (
+    settings: ExportSettings,
+    destination: 'download' | 'library',
+    onProgress?: (progress: number) => void
+  ) => Promise<void>;
 }
 
 type FormatCategory = 'all' | 'popular' | 'lossless' | 'web' | 'mobile';
@@ -228,7 +232,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const handleRegenerateFileName = () => {
     const newName = generateDefaultExportFileName({ sourceFileName: currentFileName, isEdited });
     setFileName(newName);
-    showToast('Updated default filename (Taipei time)', 'info');
+    showToast('Filename updated', 'info');
   };
 
   const selectedFormatOption = useMemo(
@@ -274,11 +278,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     };
 
     try {
-      await onExport(settings, destination);
+      await onExport(settings, destination, (p) => setProgress(p));
       onClose();
     } catch (err: any) {
       console.error(err);
-      showToast(err?.message || 'Export failed for the selected format.', 'error');
+      showToast(err?.message || 'Export failed', 'error');
     } finally {
       setIsExporting(false);
     }
@@ -313,7 +317,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             onClick={() => handleRunExport('library')}
             disabled={isExporting}
           >
-            <Radio size={14} /> Save to Library
+            {isExporting ? <Loader2 size={14} className="animate-spin" /> : <Radio size={14} />}
+            {isExporting ? 'Saving...' : 'Save to Library'}
           </button>
           <button
             className="btn btn-primary"
@@ -752,25 +757,30 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           </div>
         </div>
 
-        {/* Exporting Progress bar */}
+        {/* Exporting Progress bar & status */}
         {isExporting && (
-          <div
-            style={{
-              height: 6,
-              backgroundColor: 'var(--bg-input)',
-              borderRadius: 3,
-              overflow: 'hidden',
-              marginTop: 4
-            }}
-          >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>
+              <span>Exporting {selectedFormatOption.label}...</span>
+              <span className="mono" style={{ color: 'var(--accent-cyan)' }}>{Math.round(progress * 100)}%</span>
+            </div>
             <div
               style={{
-                width: `${Math.round(progress * 100)}%`,
-                height: '100%',
-                background: 'linear-gradient(90deg, #38bdf8, #00f0ff)',
-                transition: 'width 0.1s linear'
+                height: 6,
+                backgroundColor: 'var(--bg-input)',
+                borderRadius: 3,
+                overflow: 'hidden'
               }}
-            />
+            >
+              <div
+                style={{
+                  width: `${Math.round(progress * 100)}%`,
+                  height: '100%',
+                  background: 'linear-gradient(90deg, #38bdf8, #00f0ff)',
+                  transition: 'width 0.1s linear'
+                }}
+              />
+            </div>
           </div>
         )}
       </div>

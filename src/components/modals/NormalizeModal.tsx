@@ -47,7 +47,7 @@ export const NormalizeModal: React.FC<NormalizeModalProps> = ({
             Cancel
           </button>
           <button className="btn btn-primary" onClick={handleApply}>
-            <BarChart2 size={15} /> Apply Normalization ({targetDb > 0 ? `+${targetDb}` : targetDb} dBFS)
+            <BarChart2 size={15} /> Normalize ({targetDb > 0 ? `+${targetDb}` : targetDb} dBFS)
           </button>
         </>
       }
