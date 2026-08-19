@@ -1,8 +1,13 @@
-const CACHE_NAME = 'audiocraft-studio-v1';
+const CACHE_NAME = 'audiocraft-studio-v2';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './favicon.svg',
+  './favicon-32x32.png',
+  './favicon-16x16.png',
+  './icon-192.png',
+  './icon-512.png',
+  './apple-touch-icon.png',
   './manifest.webmanifest'
 ];
 

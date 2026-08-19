@@ -1,19 +1,154 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00f0ff" />
-      <stop offset="50%" stop-color="#3b82f6" />
-      <stop offset="100%" stop-color="#8b5cf6" />
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090d16" />
+      <stop offset="50%" stop-color="#0e1526" />
+      <stop offset="100%" stop-color="#060911" />
     </linearGradient>
+
+    <!-- Glassmorphic Card Fill -->
+    <linearGradient id="glassFill" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" stop-opacity="0.75" />
+      <stop offset="100%" stop-color="#0f172a" stop-opacity="0.85" />
+    </linearGradient>
+
+    <!-- Glowing Cyber / Audio Spectrum Gradients -->
+    <linearGradient id="cyanBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f5ff" />
+      <stop offset="100%" stop-color="#3b82f6" />
+    </linearGradient>
+
+    <linearGradient id="blueViolet" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+
+    <linearGradient id="pulseGlow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#00f5ff" />
+      <stop offset="50%" stop-color="#60a5fa" />
+      <stop offset="100%" stop-color="#c084fc" />
+    </linearGradient>
+
+    <linearGradient id="rimGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.8" />
+      <stop offset="30%" stop-color="#818cf8" stop-opacity="0.3" />
+      <stop offset="70%" stop-color="#c084fc" stop-opacity="0.1" />
+      <stop offset="100%" stop-color="#00f5ff" stop-opacity="0.6" />
+    </linearGradient>
+
+    <linearGradient id="ringGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00f5ff" stop-opacity="0.9" />
+      <stop offset="50%" stop-color="#6366f1" stop-opacity="0.7" />
+      <stop offset="100%" stop-color="#d946ef" stop-opacity="0.9" />
+    </linearGradient>
+
+    <!-- Radial Ambient Atmosphere -->
+    <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00f5ff" stop-opacity="0.35" />
+      <stop offset="45%" stop-color="#6366f1" stop-opacity="0.18" />
+      <stop offset="80%" stop-color="#a855f7" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Soft Drop Shadows and Glow Filters -->
+    <filter id="neonGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="10" result="blur1" />
+      <feGaussianBlur stdDeviation="22" result="blur2" />
+      <feMerge>
+        <feMergeNode in="blur2" />
+        <feMergeNode in="blur1" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="subtleGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
   </defs>
-  <rect width="64" height="64" rx="14" fill="#0f172a" />
-  <rect x="2" y="2" width="60" height="60" rx="12" fill="none" stroke="url(#grad)" stroke-width="1.5" stroke-opacity="0.4" />
-  <!-- Studio Audio Waveform Bars -->
-  <rect x="10" y="26" width="4" height="12" rx="2" fill="#00f0ff" />
-  <rect x="17" y="18" width="4" height="28" rx="2" fill="#38bdf8" />
-  <rect x="24" y="12" width="4" height="40" rx="2" fill="#60a5fa" />
-  <rect x="31" y="8" width="4" height="48" rx="2" fill="url(#grad)" />
-  <rect x="38" y="14" width="4" height="36" rx="2" fill="#818cf8" />
-  <rect x="45" y="20" width="4" height="24" rx="2" fill="#a78bfa" />
-  <rect x="52" y="28" width="4" height="8" rx="2" fill="#c084fc" />
+
+  <!-- App Icon Base Squircle Container -->
+  <rect width="512" height="512" rx="114" fill="url(#bgGrad)" />
+  
+  <!-- Subtle Outer Accent Rim -->
+  <rect x="3" y="3" width="506" height="506" rx="111" fill="none" stroke="url(#rimGrad)" stroke-width="3" stroke-opacity="0.45" />
+
+  <!-- Ambient Internal Acoustic Energy Glow -->
+  <circle cx="256" cy="256" r="210" fill="url(#centerGlow)" />
+
+  <!-- Inner Glassmorphic Plate -->
+  <rect x="42" y="42" width="428" height="428" rx="88" fill="url(#glassFill)" stroke="url(#rimGrad)" stroke-width="2" stroke-opacity="0.5" />
+  
+  <!-- Precision Technical Radial Scale / Audiophile Compass Ring -->
+  <circle cx="256" cy="256" r="168" fill="none" stroke="#38bdf8" stroke-width="1.5" stroke-opacity="0.2" stroke-dasharray="4 8" />
+  <circle cx="256" cy="256" r="138" fill="none" stroke="#818cf8" stroke-width="1" stroke-opacity="0.25" stroke-dasharray="2 6" />
+
+  <!-- Harmonic Geometric Sound Pulse Wavefronts (Concentric Geometric Arcs) -->
+  <!-- Outer Pulse Wavefront Arcs -->
+  <g filter="url(#subtleGlow)">
+    <!-- Left Wavefront Expansion -->
+    <path d="M 120 256 A 136 136 0 0 1 200 138" fill="none" stroke="url(#cyanBlue)" stroke-width="5" stroke-linecap="round" stroke-opacity="0.85" />
+    <path d="M 120 256 A 136 136 0 0 0 200 374" fill="none" stroke="url(#cyanBlue)" stroke-width="5" stroke-linecap="round" stroke-opacity="0.85" />
+    
+    <!-- Right Wavefront Expansion -->
+    <path d="M 392 256 A 136 136 0 0 0 312 138" fill="none" stroke="url(#blueViolet)" stroke-width="5" stroke-linecap="round" stroke-opacity="0.85" />
+    <path d="M 392 256 A 136 136 0 0 1 312 374" fill="none" stroke="url(#blueViolet)" stroke-width="5" stroke-linecap="round" stroke-opacity="0.85" />
+  </g>
+
+  <!-- Mid-Pulse Geometric Sound Wave Orbit -->
+  <circle cx="256" cy="256" r="102" fill="none" stroke="url(#ringGrad)" stroke-width="4.5" stroke-opacity="0.9" stroke-dasharray="140 22 40 22" transform="rotate(-30 256 256)" filter="url(#subtleGlow)" />
+
+  <!-- Audiophile Equalizer Geometric Frequency Pulse Core -->
+  <g filter="url(#neonGlow)">
+    <!-- Central Symmetrical Audio Frequency Bars (7-Bar Harmonic Array) -->
+    <!-- Far Left -->
+    <line x1="172" y1="230" x2="172" y2="282" stroke="#00f5ff" stroke-width="7" stroke-linecap="round" />
+    <circle cx="172" cy="216" r="3.5" fill="#00f5ff" />
+    <circle cx="172" cy="296" r="3.5" fill="#00f5ff" />
+
+    <!-- Mid-Left -->
+    <line x1="200" y1="202" x2="200" y2="310" stroke="#38bdf8" stroke-width="7.5" stroke-linecap="round" />
+    <circle cx="200" cy="188" r="4" fill="#38bdf8" />
+    <circle cx="200" cy="324" r="4" fill="#38bdf8" />
+
+    <!-- Inner-Left -->
+    <line x1="228" y1="172" x2="228" y2="340" stroke="#60a5fa" stroke-width="8" stroke-linecap="round" />
+    <circle cx="228" cy="156" r="4" fill="#60a5fa" />
+    <circle cx="228" cy="356" r="4" fill="#60a5fa" />
+
+    <!-- Center Pinnacle Pulse -->
+    <line x1="256" y1="138" x2="256" y2="374" stroke="url(#pulseGlow)" stroke-width="9" stroke-linecap="round" />
+    <circle cx="256" cy="120" r="5" fill="#ffffff" filter="url(#subtleGlow)" />
+    <circle cx="256" cy="392" r="5" fill="#c084fc" filter="url(#subtleGlow)" />
+
+    <!-- Inner-Right -->
+    <line x1="284" y1="172" x2="284" y2="340" stroke="#818cf8" stroke-width="8" stroke-linecap="round" />
+    <circle cx="284" cy="156" r="4" fill="#818cf8" />
+    <circle cx="284" cy="356" r="4" fill="#818cf8" />
+
+    <!-- Mid-Right -->
+    <line x1="312" y1="202" x2="312" y2="310" stroke="#a78bfa" stroke-width="7.5" stroke-linecap="round" />
+    <circle cx="312" cy="188" r="4" fill="#a78bfa" />
+    <circle cx="312" cy="324" r="4" fill="#a78bfa" />
+
+    <!-- Far Right -->
+    <line x1="340" y1="230" x2="340" y2="282" stroke="#c084fc" stroke-width="7" stroke-linecap="round" />
+    <circle cx="340" cy="216" r="3.5" fill="#c084fc" />
+    <circle cx="340" cy="296" r="3.5" fill="#c084fc" />
+  </g>
+
+  <!-- Horizontal Reference Axis / Studio Horizon Line -->
+  <line x1="90" y1="256" x2="140" y2="256" stroke="#00f5ff" stroke-width="2" stroke-opacity="0.6" stroke-linecap="round" />
+  <circle cx="82" cy="256" r="3" fill="#00f5ff" stroke-opacity="0.8" />
+
+  <line x1="372" y1="256" x2="422" y2="256" stroke="#c084fc" stroke-width="2" stroke-opacity="0.6" stroke-linecap="round" />
+  <circle cx="430" cy="256" r="3" fill="#c084fc" stroke-opacity="0.8" />
+
+  <!-- Top Glass Highlight Rim Reflection -->
+  <path d="M 68 76 C 120 54, 392 54, 444 76" fill="none" stroke="#ffffff" stroke-width="2" stroke-opacity="0.35" stroke-linecap="round" />
 </svg>
