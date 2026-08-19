@@ -214,11 +214,14 @@ export function AudioStudioApp() {
     setStorageUsage(usage);
   }, []);
 
-  const loadFileToEditor = useCallback(async (fileItem: AudioFileItem) => {
+  const loadFileToEditor = useCallback(async (fileItem: AudioFileItem, preDecodedBuffer?: AudioBuffer) => {
     try {
-      const audioCtx = audioEngine.getContext();
-      const arrayBuffer = await fileItem.blob.arrayBuffer();
-      const decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+      let decodedBuffer = preDecodedBuffer;
+      if (!decodedBuffer) {
+        const audioCtx = audioEngine.getContext();
+        const arrayBuffer = await fileItem.blob.arrayBuffer();
+        decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+      }
 
       setActiveFileId(fileItem.id);
       setCurrentFileName(fileItem.name);
@@ -866,10 +869,16 @@ export function AudioStudioApp() {
     }
   }, [refreshStorage, showToast]);
 
-  const handleImportFiles = useCallback(async (fileList: FileList | File[]) => {
+  const importFiles = useCallback(async (
+    fileList: FileList | File[],
+    options: { loadToEditor?: boolean } = {}
+  ) => {
+    const { loadToEditor = false } = options;
     const tempAudioCtx = audioEngine.getContext();
     let imported = 0;
     const skippedFiles: string[] = [];
+    let firstSavedFile: AudioFileItem | null = null;
+    let firstDecodedBuffer: AudioBuffer | null = null;
 
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
@@ -906,8 +915,9 @@ export function AudioStudioApp() {
           tags: ['imported']
         });
 
-        if (i === 0 && fileList.length === 1) {
-          loadFileToEditor(saved);
+        if (loadToEditor && !firstSavedFile) {
+          firstSavedFile = saved;
+          firstDecodedBuffer = decoded;
         }
         imported++;
       } catch (err) {
@@ -922,9 +932,24 @@ export function AudioStudioApp() {
     setFiles(updatedFiles);
     await refreshStorage();
 
-    if (imported > 0) {
-      showToast(`Imported ${imported} audio file(s)`, 'success');
+    if (loadToEditor) {
+      if (firstSavedFile && firstDecodedBuffer) {
+        await loadFileToEditor(firstSavedFile, firstDecodedBuffer);
+        if (imported > 1) {
+          showToast(`Loaded "${firstSavedFile.name}" into workspace (${imported} files added to library)`, 'success');
+        }
+      } else if (imported > 0) {
+        const latestFile = updatedFiles[updatedFiles.length - 1];
+        if (latestFile) {
+          await loadFileToEditor(latestFile);
+        }
+      }
+    } else {
+      if (imported > 0) {
+        showToast(`Imported ${imported} audio file(s) to library`, 'success');
+      }
     }
+
     if (skippedFiles.length > 0) {
       if (imported === 0) {
         showToast(
@@ -936,6 +961,14 @@ export function AudioStudioApp() {
       }
     }
   }, [activeFolderId, loadFileToEditor, refreshStorage, showToast]);
+
+  const handleWorkspaceImportFiles = useCallback((fileList: FileList | File[]) => {
+    return importFiles(fileList, { loadToEditor: true });
+  }, [importFiles]);
+
+  const handleSidebarImportFiles = useCallback((fileList: FileList | File[]) => {
+    return importFiles(fileList, { loadToEditor: false });
+  }, [importFiles]);
 
   const handleCreateFolder = useCallback(async (name: string, color?: string) => {
     await createFolder(name, null, color);
@@ -1162,7 +1195,7 @@ export function AudioStudioApp() {
             ref={headerFileInputRef}
             onChange={(e) => {
               if (e.target.files && e.target.files.length > 0) {
-                handleImportFiles(e.target.files);
+                handleWorkspaceImportFiles(e.target.files);
                 e.target.value = '';
               }
             }}
@@ -1251,7 +1284,7 @@ export function AudioStudioApp() {
             onDeleteFolder={handleDeleteFolder}
             onLoadFileToEditor={loadFileToEditor}
             onDeleteFile={handleDeleteFile}
-            onImportFiles={handleImportFiles}
+            onImportFiles={handleSidebarImportFiles}
             onExportZip={handleExportZip}
             onCloseSidebar={handleCloseSidebar}
           />
@@ -1272,7 +1305,7 @@ export function AudioStudioApp() {
             e.preventDefault();
             setIsEditorDragOver(false);
             if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-              handleImportFiles(e.dataTransfer.files);
+              handleWorkspaceImportFiles(e.dataTransfer.files);
             }
           }}
           style={{
@@ -1344,7 +1377,7 @@ export function AudioStudioApp() {
               onSelectRegion={setSelection}
               onZoomChange={setZoom}
               onScrollChange={setScrollLeft}
-              onImportFiles={handleImportFiles}
+              onImportFiles={handleWorkspaceImportFiles}
               onLoadFileToEditor={loadFileToEditor}
               onOpenRecord={handleOpenRecordModal}
               onOpenGenerator={handleOpenGeneratorModal}
