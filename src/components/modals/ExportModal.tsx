@@ -489,8 +489,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         <div
           style={{
             display: 'flex',
-            alignItems: 'center',
-            gap: 8,
+            flexDirection: 'column',
+            gap: 6,
             padding: '8px 10px',
             background: 'var(--bg-surface)',
             border: '1px solid var(--border-subtle)',
@@ -498,41 +498,64 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             fontSize: 'var(--font-xs)'
           }}
         >
-          <Info size={14} color="var(--accent-cyan)" style={{ flexShrink: 0 }} />
-          <div style={{ flex: 1, color: 'var(--text-secondary)' }}>
-            <strong style={{ color: 'var(--text-primary)' }}>{selectedFormatOption.label}</strong> ({selectedFormatOption.ext}): {selectedFormatOption.details}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Info size={14} color="var(--accent-cyan)" style={{ flexShrink: 0 }} />
+            <div style={{ flex: 1, color: 'var(--text-secondary)' }}>
+              <strong style={{ color: 'var(--text-primary)' }}>{selectedFormatOption.label}</strong> ({selectedFormatOption.ext}): {selectedFormatOption.details}
+            </div>
+            {selectedFormatOption.lossless ? (
+              <span
+                style={{
+                  fontSize: '9px',
+                  fontWeight: 700,
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  background: 'rgba(16, 185, 129, 0.2)',
+                  color: '#10b981',
+                  textTransform: 'uppercase',
+                  flexShrink: 0
+                }}
+              >
+                Lossless
+              </span>
+            ) : (
+              <span
+                style={{
+                  fontSize: '9px',
+                  fontWeight: 700,
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  background: 'rgba(56, 189, 248, 0.15)',
+                  color: '#38bdf8',
+                  textTransform: 'uppercase',
+                  flexShrink: 0
+                }}
+              >
+                Compressed
+              </span>
+            )}
           </div>
-          {selectedFormatOption.lossless ? (
-            <span
-              style={{
-                fontSize: '9px',
-                fontWeight: 700,
-                padding: '2px 6px',
-                borderRadius: 4,
-                background: 'rgba(16, 185, 129, 0.2)',
-                color: '#10b981',
-                textTransform: 'uppercase',
-                flexShrink: 0
-              }}
-            >
-              Lossless
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: 'calc(10px * var(--ui-font-scale, 1))',
+              color: 'var(--text-muted)',
+              borderTop: '1px solid var(--border-subtle)',
+              paddingTop: 5
+            }}
+          >
+            <span>
+              {['wav', 'aiff', 'au', 'raw', 'caf'].includes(format)
+                ? 'Limits: 4 GB max file size (standard 32-bit RIFF/PCM header limit ~6.7h stereo)'
+                : format === 'mp3'
+                ? 'Limits: No hard duration limit (chunked 1152-sample streaming frames)'
+                : 'Limits: Governed by browser MediaRecorder stream capacity'}
             </span>
-          ) : (
-            <span
-              style={{
-                fontSize: '9px',
-                fontWeight: 700,
-                padding: '2px 6px',
-                borderRadius: 4,
-                background: 'rgba(56, 189, 248, 0.15)',
-                color: '#38bdf8',
-                textTransform: 'uppercase',
-                flexShrink: 0
-              }}
-            >
-              Compressed
-            </span>
-          )}
+            <span style={{ color: 'var(--accent-cyan)' }}>100% In-Browser Export</span>
+          </div>
         </div>
 
         {/* Format Specific Configuration Settings */}

@@ -133,6 +133,22 @@ export const EmptyStudioState: React.FC<EmptyStudioStateProps> = ({
             </span>
           ))}
         </div>
+
+        {/* Processing & Capacity Limits Hint */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+            fontSize: 'calc(10.5px * var(--ui-font-scale, 1))',
+            color: 'var(--text-muted)',
+            marginTop: 3
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>⚡</span>
+          <span>In-browser processing • No file size limits (≤ 60 min/file recommended for RAM)</span>
+        </div>
       </div>
 
       {/* Quick Action Hub: Record, Generator, Library */}

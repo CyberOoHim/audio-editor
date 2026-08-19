@@ -210,6 +210,9 @@ export const GeneratorModal: React.FC<GeneratorModalProps> = ({
             unit="sec"
             onChange={(val) => setDuration(Math.round(val * 10) / 10)}
           />
+          <div style={{ fontSize: 'calc(9.5px * var(--ui-font-scale, 1))', color: 'var(--text-muted)', marginTop: 2 }}>
+            Limits: 0.1s – 60s per block (pure mathematical PCM synthesis)
+          </div>
         </div>
 
         {/* Channels Mode */}

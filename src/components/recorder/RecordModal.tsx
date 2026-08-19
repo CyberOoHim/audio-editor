@@ -188,6 +188,21 @@ export const RecordModal: React.FC<RecordModalProps> = ({
         {/* Stereo VU Meter */}
         <VuMeter peakL={metrics.peakL} peakR={metrics.peakR} />
 
+        {/* Concise Recording Limit Hint */}
+        <div
+          style={{
+            fontSize: 'calc(10.5px * var(--ui-font-scale, 1))',
+            color: 'var(--text-muted)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 4
+          }}
+        >
+          <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>⚡</span>
+          <span>In-memory 32-bit Float PCM • No hard recording time limit (RAM-governed)</span>
+        </div>
+
         {/* Track Title Input */}
         <div className="form-group" style={{ width: '100%' }}>
           <label className="form-label">Recording Track Title</label>

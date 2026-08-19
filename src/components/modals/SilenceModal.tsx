@@ -45,7 +45,7 @@ export const SilenceModal: React.FC<SilenceModalProps> = ({
             Cancel
           </button>
           <button className="btn btn-primary" onClick={handleApply}>
-            <PlusCircle size={15} /> Insert Silence (${duration}s)
+            <PlusCircle size={15} /> Insert Silence ({duration}s)
           </button>
         </>
       }
@@ -85,6 +85,10 @@ export const SilenceModal: React.FC<SilenceModalProps> = ({
             unit="sec"
             onChange={(val) => setDuration(Math.round(val * 10) / 10)}
           />
+
+          <div style={{ fontSize: 'calc(9.5px * var(--ui-font-scale, 1))', color: 'var(--text-muted)', marginTop: 2 }}>
+            Limits: 0.05s – 60s per block (insert multiple times for longer gaps)
+          </div>
 
           {/* Preset Buttons */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>

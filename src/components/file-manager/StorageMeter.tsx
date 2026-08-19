@@ -59,6 +59,17 @@ export const StorageMeter: React.FC<StorageMeterProps> = ({
           <Archive size={13} /> Backup .ZIP
         </button>
       </div>
+
+      <div
+        style={{
+          fontSize: 'calc(9.5px * var(--ui-font-scale, 1))',
+          color: 'var(--text-muted)',
+          textAlign: 'center',
+          marginTop: 2
+        }}
+      >
+        Browser disk quota (~10–60% free space) • Stored privately in IndexedDB
+      </div>
     </div>
   );
 };

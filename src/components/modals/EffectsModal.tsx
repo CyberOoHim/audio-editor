@@ -112,7 +112,28 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
         </>
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Processing Limit & Engine Hint */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '6px 10px',
+            background: 'var(--bg-panel)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: 'calc(10.5px * var(--ui-font-scale, 1))',
+            color: 'var(--text-muted)'
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>⚡</span>
+            <span>In-memory DSP rendering (OfflineAudioContext • Non-realtime fast render)</span>
+          </span>
+          <span style={{ color: 'var(--text-secondary)' }}>RAM-governed</span>
+        </div>
+
         {/* 3-Band EQ Section */}
         <div style={{
           backgroundColor: 'var(--bg-surface)',
