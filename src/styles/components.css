@@ -59,6 +59,14 @@
   flex-shrink: 1;
 }
 
+.track-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
 .header-actions {
   display: flex;
   align-items: center;
@@ -187,6 +195,12 @@
   height: 30px;
   padding: 0 8px;
   font-size: calc(12px * var(--ui-font-scale, 1));
+}
+
+.btn-xs {
+  height: 24px;
+  padding: 0 6px;
+  font-size: calc(11px * var(--ui-font-scale, 1));
 }
 
 .btn-lg {
@@ -1307,5 +1321,36 @@
   align-items: center;
   gap: 4px;
   cursor: pointer;
+}
+
+.track-header-clear-btn {
+  margin-left: 6px;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  transition: all 0.15s ease;
+}
+
+.track-header-clear-btn:hover {
+  background-color: var(--accent-rose-dim);
+  color: var(--accent-rose);
+  border-color: rgba(244, 63, 94, 0.35);
+}
+
+.header-clear-btn {
+  transition: all 0.15s ease;
+}
+
+.header-clear-btn:hover:not(:disabled) {
+  background-color: var(--accent-rose-dim);
+  color: var(--accent-rose);
+  border-color: rgba(244, 63, 94, 0.35);
 }
 

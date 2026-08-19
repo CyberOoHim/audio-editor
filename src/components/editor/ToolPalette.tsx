@@ -13,7 +13,8 @@ import {
   PlusCircle,
   BarChart2,
   Radio,
-  SlidersHorizontal
+  SlidersHorizontal,
+  FileX
 } from 'lucide-react';
 import type { FadeType } from '../../types/audio';
 
@@ -36,6 +37,7 @@ export interface ToolPaletteProps {
   onSplit: () => void;
   onOpenEffects: () => void;
   onOpenGenerator: () => void;
+  onClearWorkspace?: () => void;
 }
 
 export const ToolPalette: React.FC<ToolPaletteProps> = React.memo(({
@@ -56,7 +58,8 @@ export const ToolPalette: React.FC<ToolPaletteProps> = React.memo(({
   onInvert,
   onSplit,
   onOpenEffects,
-  onOpenGenerator
+  onOpenGenerator,
+  onClearWorkspace
 }) => {
   return (
     <div className="editor-toolbar">
@@ -211,6 +214,21 @@ export const ToolPalette: React.FC<ToolPaletteProps> = React.memo(({
           title="Open EQ, Highpass/Lowpass Filters & Compressor DSP Studio"
         >
           <Sliders size={14} /> Effects & EQ
+        </button>
+      </div>
+
+      <div className="tool-divider" />
+
+      {/* Workspace Management */}
+      <div className="tool-group">
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={onClearWorkspace}
+          disabled={!hasBuffer}
+          title="Clear Workspace: Reset audio editor back to upload modal"
+        >
+          <FileX size={14} color={hasBuffer ? 'var(--accent-rose)' : undefined} />
+          <span>Clear Workspace</span>
         </button>
       </div>
     </div>

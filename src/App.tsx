@@ -3,7 +3,9 @@ import {
   Download,
   Menu,
   Smartphone,
-  FolderOpen
+  FolderOpen,
+  X,
+  FileX
 } from 'lucide-react';
 
 import type { FolderItem, AudioFileItem, StorageUsage } from './types/storage';
@@ -1006,6 +1008,23 @@ export function AudioStudioApp() {
     showToast('File deleted', 'info');
   }, [activeFileId, refreshStorage, showToast]);
 
+  const handleClearWorkspace = useCallback(() => {
+    if (!currentBuffer) return;
+    if (canUndo) {
+      const confirmed = window.confirm('Clear workspace? Any unsaved edits will be discarded.');
+      if (!confirmed) return;
+    }
+    audioEngine.stop();
+    audioEngine.clearBuffer();
+    setActiveFileId(null);
+    setCurrentFileName('No file selected');
+    setCurrentTime(0);
+    setSelection(null);
+    setScrollLeft(0);
+    setIsLooping(false);
+    showToast('Workspace cleared', 'info');
+  }, [currentBuffer, canUndo, showToast]);
+
   const handleExportZip = useCallback(async () => {
     showToast('Generating .ZIP backup archive...', 'info');
     const zipBlob = await exportAllToZip();
@@ -1204,8 +1223,8 @@ export function AudioStudioApp() {
             style={{ display: 'none' }}
           />
           <span className="track-prefix-label" style={{ color: 'var(--text-muted)' }}>Track:</span>
-          <span>{currentFileName}</span>
-          {!currentBuffer && (
+          <span className="track-name-text" title={currentFileName}>{currentFileName}</span>
+          {!currentBuffer ? (
             <button
               type="button"
               className="btn btn-secondary btn-xs track-header-open-btn"
@@ -1214,6 +1233,17 @@ export function AudioStudioApp() {
             >
               <FolderOpen size={11} color="var(--accent-cyan)" />
               <span>Open</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs track-header-clear-btn"
+              onClick={handleClearWorkspace}
+              title="Clear workspace (Return to upload modal)"
+              aria-label="Clear workspace"
+            >
+              <X size={12} />
+              <span className="btn-text-desktop">Clear</span>
             </button>
           )}
         </div>
@@ -1227,6 +1257,19 @@ export function AudioStudioApp() {
             onIncrease={handleIncreaseFont}
             onReset={handleResetFont}
           />
+
+          {/* Clear Workspace Button */}
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm header-clear-btn"
+            onClick={handleClearWorkspace}
+            disabled={!currentBuffer}
+            title="Clear workspace back to upload modal"
+            aria-label="Clear workspace"
+          >
+            <FileX size={14} color={currentBuffer ? 'var(--accent-rose)' : undefined} />
+            <span className="btn-text-desktop">Clear</span>
+          </button>
 
           <button
             className="btn btn-secondary btn-sm"
@@ -1333,6 +1376,7 @@ export function AudioStudioApp() {
             onSplit={handleSplit}
             onOpenEffects={handleOpenEffectsModal}
             onOpenGenerator={handleOpenGeneratorModal}
+            onClearWorkspace={handleClearWorkspace}
           />
 
           {/* MiniMap Overview */}
