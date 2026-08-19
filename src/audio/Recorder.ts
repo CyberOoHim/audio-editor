@@ -13,8 +13,10 @@ export class StudioRecorder {
   private audioCtx: AudioContext | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private gainNode: GainNode | null = null;
+  private splitterNode: ChannelSplitterNode | null = null;
+  private analyserL: AnalyserNode | null = null;
+  private analyserR: AnalyserNode | null = null;
   private processorNode: ScriptProcessorNode | null = null;
-  private analyserNode: AnalyserNode | null = null;
   
   private leftChannelData: Float32Array[] = [];
   private rightChannelData: Float32Array[] = [];
@@ -80,33 +82,58 @@ export class StudioRecorder {
 
       this.sourceNode = this.audioCtx.createMediaStreamSource(this.mediaStream);
 
-      // Gain boost node
+      // Gain boost node configured for stereo with explicit upmixing (mono -> stereo duplication)
       this.gainNode = this.audioCtx.createGain();
+      this.gainNode.channelCount = 2;
+      this.gainNode.channelCountMode = 'explicit';
+      this.gainNode.channelInterpretation = 'speakers';
+
       const linearGain = Math.pow(10, this.gainDb / 20);
       this.gainNode.gain.setValueAtTime(linearGain, this.audioCtx.currentTime);
       this.sourceNode.connect(this.gainNode);
-      
-      // Analyser node for live visualizer (connected to gain output)
-      this.analyserNode = this.audioCtx.createAnalyser();
-      this.analyserNode.fftSize = 512;
-      this.analyserNode.smoothingTimeConstant = 0.7;
-      this.gainNode.connect(this.analyserNode);
 
-      // Buffer processor (4096 buffer size)
+      // Channel splitter for independent Left and Right live analysers
+      this.splitterNode = this.audioCtx.createChannelSplitter(2);
+      this.gainNode.connect(this.splitterNode);
+
+      this.analyserL = this.audioCtx.createAnalyser();
+      this.analyserL.fftSize = 512;
+      this.analyserL.smoothingTimeConstant = 0.7;
+      this.splitterNode.connect(this.analyserL, 0);
+
+      this.analyserR = this.audioCtx.createAnalyser();
+      this.analyserR.fftSize = 512;
+      this.analyserR.smoothingTimeConstant = 0.7;
+      this.splitterNode.connect(this.analyserR, 1);
+
+      // Buffer processor (4096 buffer size, 2 inputs, 2 outputs)
       this.processorNode = this.audioCtx.createScriptProcessor(4096, 2, 2);
       this.processorNode.onaudioprocess = (e) => {
         if (!this.isRecording || this.isPaused) return;
 
+        const numChannels = e.inputBuffer.numberOfChannels;
         const inputL = e.inputBuffer.getChannelData(0);
-        const inputR = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : inputL;
+        const inputR = numChannels > 1 ? e.inputBuffer.getChannelData(1) : inputL;
 
-        // Copy buffer chunks
+        // Verify if channel 1 has non-zero audio (or if browser fed silence on right channel for mono mic)
+        let hasRightAudio = false;
+        if (numChannels > 1) {
+          const stride = inputR.length > 64 ? 8 : 1;
+          for (let i = 0; i < inputR.length; i += stride) {
+            if (Math.abs(inputR[i]) > 1e-5) {
+              hasRightAudio = true;
+              break;
+            }
+          }
+        }
+
+        // Copy buffer chunks - ensure both channels are populated with full sound
         const chunkL = new Float32Array(inputL.length);
         chunkL.set(inputL);
         this.leftChannelData.push(chunkL);
 
-        const chunkR = new Float32Array(inputR.length);
-        chunkR.set(inputR);
+        const chunkR = new Float32Array(inputL.length);
+        chunkR.set(hasRightAudio ? inputR : inputL);
         this.rightChannelData.push(chunkR);
 
         this.recordedSamples += inputL.length;
@@ -125,6 +152,18 @@ export class StudioRecorder {
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
         this.mediaStream = null;
+      }
+      if (this.splitterNode) {
+        this.splitterNode.disconnect();
+        this.splitterNode = null;
+      }
+      if (this.analyserL) {
+        this.analyserL.disconnect();
+        this.analyserL = null;
+      }
+      if (this.analyserR) {
+        this.analyserR.disconnect();
+        this.analyserR = null;
       }
       if (this.gainNode) {
         this.gainNode.disconnect();
@@ -168,6 +207,21 @@ export class StudioRecorder {
       this.processorNode = null;
     }
 
+    if (this.splitterNode) {
+      this.splitterNode.disconnect();
+      this.splitterNode = null;
+    }
+
+    if (this.analyserL) {
+      this.analyserL.disconnect();
+      this.analyserL = null;
+    }
+
+    if (this.analyserR) {
+      this.analyserR.disconnect();
+      this.analyserR = null;
+    }
+
     if (this.gainNode) {
       this.gainNode.disconnect();
       this.gainNode = null;
@@ -186,16 +240,32 @@ export class StudioRecorder {
       return null;
     }
 
-    // Merge Float32Array chunks into single AudioBuffer
+    // Safety check: ensure Right channel has audio (fall back to Left if silent)
+    let rightHasSignal = false;
+    for (let i = 0; i < this.rightChannelData.length; i++) {
+      const chunk = this.rightChannelData[i];
+      const stride = chunk.length > 64 ? 16 : 1;
+      for (let j = 0; j < chunk.length; j += stride) {
+        if (Math.abs(chunk[j]) > 1e-5) {
+          rightHasSignal = true;
+          break;
+        }
+      }
+      if (rightHasSignal) break;
+    }
+
+    // Merge Float32Array chunks into single AudioBuffer with both channels populated
     const audioBuffer = this.audioCtx.createBuffer(2, this.recordedSamples, this.sampleRate);
     const outL = audioBuffer.getChannelData(0);
     const outR = audioBuffer.getChannelData(1);
 
     let offset = 0;
     for (let i = 0; i < this.leftChannelData.length; i++) {
-      outL.set(this.leftChannelData[i], offset);
-      outR.set(this.rightChannelData[i], offset);
-      offset += this.leftChannelData[i].length;
+      const chunkL = this.leftChannelData[i];
+      const chunkR = rightHasSignal ? this.rightChannelData[i] : chunkL;
+      outL.set(chunkL, offset);
+      outR.set(chunkR, offset);
+      offset += chunkL.length;
     }
 
     this.audioCtx.close();
@@ -220,6 +290,21 @@ export class StudioRecorder {
       this.processorNode = null;
     }
 
+    if (this.splitterNode) {
+      this.splitterNode.disconnect();
+      this.splitterNode = null;
+    }
+
+    if (this.analyserL) {
+      this.analyserL.disconnect();
+      this.analyserL = null;
+    }
+
+    if (this.analyserR) {
+      this.analyserR.disconnect();
+      this.analyserR = null;
+    }
+
     if (this.gainNode) {
       this.gainNode.disconnect();
       this.gainNode = null;
@@ -240,7 +325,7 @@ export class StudioRecorder {
   }
 
   public getAnalyser(): AnalyserNode | null {
-    return this.analyserNode;
+    return this.analyserL;
   }
 
   public getDuration(): number {
@@ -262,7 +347,8 @@ export class StudioRecorder {
 
   private startMetricsLoop(): void {
     this.stopMetricsLoop();
-    const dataArray = new Uint8Array(256);
+    const dataArrayL = new Uint8Array(256);
+    const dataArrayR = new Uint8Array(256);
     let lastUpdate = 0;
     const minInterval = 1000 / 30; // 30 FPS cap for VU meter calculations
 
@@ -270,27 +356,44 @@ export class StudioRecorder {
       if (this.isRecording) {
         if (timestamp - lastUpdate >= minInterval) {
           lastUpdate = timestamp;
-          let peak = 0;
-          let rms = 0;
+          let peakL = 0;
+          let rmsL = 0;
+          let peakR = 0;
+          let rmsR = 0;
 
-          if (this.analyserNode) {
-            this.analyserNode.getByteTimeDomainData(dataArray);
-            let sumSquares = 0;
-            for (let i = 0; i < dataArray.length; i++) {
-              const norm = (dataArray[i] - 128) / 128;
+          if (this.analyserL) {
+            this.analyserL.getByteTimeDomainData(dataArrayL);
+            let sumSquaresL = 0;
+            for (let i = 0; i < dataArrayL.length; i++) {
+              const norm = (dataArrayL[i] - 128) / 128;
               const absNorm = Math.abs(norm);
-              if (absNorm > peak) peak = absNorm;
-              sumSquares += norm * norm;
+              if (absNorm > peakL) peakL = absNorm;
+              sumSquaresL += norm * norm;
             }
-            rms = Math.sqrt(sumSquares / dataArray.length);
+            rmsL = Math.sqrt(sumSquaresL / dataArrayL.length);
+          }
+
+          if (this.analyserR) {
+            this.analyserR.getByteTimeDomainData(dataArrayR);
+            let sumSquaresR = 0;
+            for (let i = 0; i < dataArrayR.length; i++) {
+              const norm = (dataArrayR[i] - 128) / 128;
+              const absNorm = Math.abs(norm);
+              if (absNorm > peakR) peakR = absNorm;
+              sumSquaresR += norm * norm;
+            }
+            rmsR = Math.sqrt(sumSquaresR / dataArrayR.length);
+          } else {
+            peakR = peakL;
+            rmsR = rmsL;
           }
 
           const metrics: RecorderMetrics = {
             duration: this.getDuration(),
-            peakL: peak,
-            peakR: peak * 0.95, // simulated stereo meter
-            rmsL: rms,
-            rmsR: rms * 0.95
+            peakL,
+            peakR,
+            rmsL,
+            rmsR
           };
 
           this.metricsListeners.forEach(fn => fn(metrics));
