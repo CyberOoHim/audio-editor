@@ -1,0 +1,10 @@
+{
+  "name": "AudioCraft Studio",
+  "description": "Studio-grade Web Audio Editor, Recorder, and File Manager running client-side with IndexedDB storage, waveform scrubbing, DSP editing, and multi-format conversion.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
