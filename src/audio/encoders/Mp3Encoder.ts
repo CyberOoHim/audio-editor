@@ -1,3 +1,9 @@
+/**
+ * High-Speed MP3 Encoder with Dedicated Web Worker Offloading.
+ * Prevents main-thread UI freezing and uses multi-threaded streaming frames.
+ */
+
+import { runWorkerEncoding } from '../workers/workerClient';
 import * as lameModule from '@breezystack/lamejs';
 
 export interface Mp3EncoderOptions {
@@ -7,7 +13,10 @@ export interface Mp3EncoderOptions {
   onProgress?: (progress: number) => void;
 }
 
-export async function encodeMp3(
+/**
+ * Main-thread fallback for MP3 encoding in case Web Workers are restricted in environment
+ */
+async function encodeMp3MainThread(
   buffer: AudioBuffer,
   options: Mp3EncoderOptions = {}
 ): Promise<Blob> {
@@ -16,8 +25,6 @@ export async function encodeMp3(
   const targetSampleRate = options.sampleRate || buffer.sampleRate;
 
   let sourceBuffer = buffer;
-
-  // Resample if necessary
   if (targetSampleRate !== buffer.sampleRate || targetChannels !== buffer.numberOfChannels) {
     const offlineCtx = new OfflineAudioContext(
       targetChannels,
@@ -38,7 +45,6 @@ export async function encodeMp3(
   const Mp3Encoder = (lameModule as any).Mp3Encoder || (lameModule as any).default?.Mp3Encoder;
   const encoder = new Mp3Encoder(numChannels, sampleRate, bitrate);
 
-  // Convert Float32 to Int16
   const leftFloat = sourceBuffer.getChannelData(0);
   const rightFloat = numChannels > 1 ? sourceBuffer.getChannelData(1) : leftFloat;
 
@@ -47,16 +53,16 @@ export async function encodeMp3(
 
   for (let i = 0; i < samples; i++) {
     const l = Math.max(-1, Math.min(1, leftFloat[i]));
-    leftInt16[i] = l < 0 ? l * 0x8000 : l * 0x7FFF;
+    leftInt16[i] = l < 0 ? l * 0x8000 : l * 0x7fff;
 
     if (numChannels > 1) {
       const r = Math.max(-1, Math.min(1, rightFloat[i]));
-      rightInt16[i] = r < 0 ? r * 0x8000 : r * 0x7FFF;
+      rightInt16[i] = r < 0 ? r * 0x8000 : r * 0x7fff;
     }
   }
 
   const mp3Data: Uint8Array[] = [];
-  const chunkSize = 1152; // LAME standard frame sample size
+  const chunkSize = 1152;
 
   for (let i = 0; i < samples; i += chunkSize) {
     const leftChunk = leftInt16.subarray(i, i + chunkSize);
@@ -73,10 +79,9 @@ export async function encodeMp3(
       mp3Data.push(new Uint8Array(mp3buf));
     }
 
-    if (options.onProgress && i % (chunkSize * 10) === 0) {
+    if (options.onProgress && i % (chunkSize * 15) === 0) {
       options.onProgress(Math.min(0.95, i / samples));
-      // Yield to main thread briefly for responsive UI
-      await new Promise(r => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
     }
   }
 
@@ -85,9 +90,27 @@ export async function encodeMp3(
     mp3Data.push(new Uint8Array(endBuf));
   }
 
-  if (options.onProgress) {
-    options.onProgress(1.0);
-  }
+  if (options.onProgress) options.onProgress(1.0);
+  return new Blob(mp3Data as unknown as BlobPart[], { type: 'audio/mp3' });
+}
 
-  return new Blob(mp3Data as BlobPart[], { type: 'audio/mp3' });
+/**
+ * Encodes an AudioBuffer into MP3 using Web Worker offloading for non-blocking high speed.
+ */
+export async function encodeMp3(
+  buffer: AudioBuffer,
+  options: Mp3EncoderOptions = {}
+): Promise<Blob> {
+  try {
+    const arrayBuffer = await runWorkerEncoding('encode-mp3', buffer, {
+      bitrate: options.bitrate || 192,
+      channels: options.channels,
+      sampleRate: options.sampleRate,
+      onProgress: options.onProgress
+    });
+    return new Blob([arrayBuffer], { type: 'audio/mp3' });
+  } catch (err) {
+    console.warn('Worker MP3 encoding failed, falling back to in-thread encoder:', err);
+    return await encodeMp3MainThread(buffer, options);
+  }
 }

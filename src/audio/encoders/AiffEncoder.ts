@@ -1,3 +1,8 @@
+/**
+ * Direct Chunk-Streamed Lossless AIFF Encoder.
+ * Writes directly to chunked Blob streams without allocating monolithic multi-gigabyte ArrayBuffers.
+ */
+
 export interface AiffEncoderOptions {
   bitDepth?: 16 | 24 | 32;
   channels?: 1 | 2;
@@ -41,7 +46,7 @@ function writeExtended80(view: DataView, offset: number, value: number): void {
 }
 
 /**
- * Encodes an AudioBuffer into an uncompressed AIFF (.aif / .aiff) file Blob.
+ * Encodes an AudioBuffer into an uncompressed AIFF (.aif / .aiff) file Blob using chunked streaming.
  */
 export async function encodeAiff(
   buffer: AudioBuffer,
@@ -83,8 +88,8 @@ export async function encodeAiff(
   const headerSize = 54;
   const totalSize = headerSize + dataSize;
 
-  const arrayBuffer = new ArrayBuffer(totalSize);
-  const view = new DataView(arrayBuffer);
+  const headerBuffer = new ArrayBuffer(54);
+  const view = new DataView(headerBuffer);
 
   function writeString(offset: number, str: string) {
     for (let i = 0; i < str.length; i++) {
@@ -94,7 +99,7 @@ export async function encodeAiff(
 
   // 1. FORM Chunk Header
   writeString(0, 'FORM');
-  view.setUint32(4, totalSize - 8, false); // big-endian
+  view.setUint32(4, Math.min(0xffffffff - 8, totalSize - 8), false); // big-endian
   writeString(8, 'AIFF');
 
   // 2. Common Chunk (COMM)
@@ -107,44 +112,65 @@ export async function encodeAiff(
 
   // 3. Sound Data Chunk (SSND)
   writeString(38, 'SSND');
-  view.setUint32(42, 8 + dataSize, false); // chunk size (uint32 big-endian)
+  view.setUint32(42, Math.min(0xffffffff, 8 + dataSize), false); // chunk size (uint32 big-endian)
   view.setUint32(46, 0, false); // offset = 0
   view.setUint32(50, 0, false); // blockSize = 0
 
-  // 4. Sample Data
-  let offset = 54;
+  const chunks: BlobPart[] = [headerBuffer];
+
+  // 4. Stream Sample Data in Chunks
+  const CHUNK_FRAMES = 32768;
   const channelData: Float32Array[] = [];
   for (let c = 0; c < numChannels; c++) {
     channelData.push(sourceBuffer.getChannelData(c < sourceBuffer.numberOfChannels ? c : 0));
   }
 
-  if (bitDepth === 16) {
-    for (let i = 0; i < numSamples; i++) {
-      for (let c = 0; c < numChannels; c++) {
-        const s = Math.max(-1, Math.min(1, channelData[c][i]));
-        const intSample = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        view.setInt16(offset, Math.floor(intSample), false); // big-endian
-        offset += 2;
+  for (let offset = 0; offset < numSamples; offset += CHUNK_FRAMES) {
+    const chunkFrames = Math.min(CHUNK_FRAMES, numSamples - offset);
+    const chunkBytes = chunkFrames * numChannels * bytesPerSample;
+    const chunkArray = new Uint8Array(chunkBytes);
+    const chunkView = new DataView(chunkArray.buffer);
+
+    let byteOffset = 0;
+
+    if (bitDepth === 16) {
+      for (let i = 0; i < chunkFrames; i++) {
+        const frameIdx = offset + i;
+        for (let c = 0; c < numChannels; c++) {
+          const s = Math.max(-1, Math.min(1, channelData[c][frameIdx]));
+          const intSample = s < 0 ? s * 0x8000 : s * 0x7fff;
+          chunkView.setInt16(byteOffset, Math.floor(intSample), false); // big-endian
+          byteOffset += 2;
+        }
+      }
+    } else if (bitDepth === 24) {
+      for (let i = 0; i < chunkFrames; i++) {
+        const frameIdx = offset + i;
+        for (let c = 0; c < numChannels; c++) {
+          const s = Math.max(-1, Math.min(1, channelData[c][frameIdx]));
+          const intSample = s < 0 ? s * 0x800000 : s * 0x7fffff;
+          const int24 = Math.floor(intSample);
+          chunkArray[byteOffset] = (int24 >> 16) & 0xff;
+          chunkArray[byteOffset + 1] = (int24 >> 8) & 0xff;
+          chunkArray[byteOffset + 2] = int24 & 0xff;
+          byteOffset += 3;
+        }
+      }
+    } else if (bitDepth === 32) {
+      for (let i = 0; i < chunkFrames; i++) {
+        const frameIdx = offset + i;
+        for (let c = 0; c < numChannels; c++) {
+          chunkView.setFloat32(byteOffset, channelData[c][frameIdx], false); // big-endian IEEE float
+          byteOffset += 4;
+        }
       }
     }
-  } else if (bitDepth === 24) {
-    for (let i = 0; i < numSamples; i++) {
-      for (let c = 0; c < numChannels; c++) {
-        const s = Math.max(-1, Math.min(1, channelData[c][i]));
-        const intSample = s < 0 ? s * 0x800000 : s * 0x7FFFFF;
-        const int24 = Math.floor(intSample);
-        view.setUint8(offset, (int24 >> 16) & 0xff);
-        view.setUint8(offset + 1, (int24 >> 8) & 0xff);
-        view.setUint8(offset + 2, int24 & 0xff);
-        offset += 3;
-      }
-    }
-  } else if (bitDepth === 32) {
-    for (let i = 0; i < numSamples; i++) {
-      for (let c = 0; c < numChannels; c++) {
-        view.setFloat32(offset, channelData[c][i], false); // big-endian IEEE 754 float
-        offset += 4;
-      }
+
+    chunks.push(chunkArray);
+
+    if (options.onProgress && offset % (CHUNK_FRAMES * 8) === 0) {
+      options.onProgress(Math.min(0.98, offset / numSamples));
+      await new Promise((r) => setTimeout(r, 0));
     }
   }
 
@@ -152,5 +178,5 @@ export async function encodeAiff(
     options.onProgress(1.0);
   }
 
-  return new Blob([arrayBuffer], { type: 'audio/aiff' });
+  return new Blob(chunks as unknown as BlobPart[], { type: 'audio/aiff' });
 }

@@ -1,3 +1,8 @@
+/**
+ * Direct Chunk-Streamed Lossless Sun / NeXT AU (.au / .snd) Encoder.
+ * Writes directly to chunked Blob streams without allocating monolithic multi-gigabyte ArrayBuffers.
+ */
+
 export interface AuEncoderOptions {
   bitDepth?: 8 | 16 | 24 | 32;
   channels?: 1 | 2;
@@ -6,7 +11,7 @@ export interface AuEncoderOptions {
 }
 
 /**
- * Encodes an AudioBuffer into Sun / NeXT AU (.au / .snd) format.
+ * Encodes an AudioBuffer into Sun / NeXT AU (.au / .snd) format using chunk streaming.
  */
 export async function encodeAu(
   buffer: AudioBuffer,
@@ -52,17 +57,16 @@ export async function encodeAu(
 
   const dataSize = numSamples * numChannels * bytesPerSample;
   const headerSize = 24;
-  const totalSize = headerSize + dataSize;
 
-  const arrayBuffer = new ArrayBuffer(totalSize);
-  const view = new DataView(arrayBuffer);
+  const headerBuffer = new ArrayBuffer(24);
+  const view = new DataView(headerBuffer);
 
   // 1. Magic number ".snd" (0x2e736e64)
   view.setUint32(0, 0x2e736e64, false); // big-endian
   // 2. Data offset (24 bytes)
   view.setUint32(4, headerSize, false);
-  // 3. Data size
-  view.setUint32(8, dataSize, false);
+  // 3. Data size (0xffffffff if unbounded or exact)
+  view.setUint32(8, Math.min(0xffffffff, dataSize), false);
   // 4. Encoding code
   view.setUint32(12, encodingCode, false);
   // 5. Sample rate
@@ -70,49 +74,71 @@ export async function encodeAu(
   // 6. Channels
   view.setUint32(20, numChannels, false);
 
-  // 7. Write interleaved samples
-  let offset = headerSize;
+  const chunks: BlobPart[] = [headerBuffer];
+
+  // 7. Write interleaved samples in chunks
+  const CHUNK_FRAMES = 32768;
   const channelData: Float32Array[] = [];
   for (let c = 0; c < numChannels; c++) {
     channelData.push(sourceBuffer.getChannelData(c < sourceBuffer.numberOfChannels ? c : 0));
   }
 
-  if (bitDepth === 8) {
-    for (let i = 0; i < numSamples; i++) {
-      for (let c = 0; c < numChannels; c++) {
-        const s = Math.max(-1, Math.min(1, channelData[c][i]));
-        const intSample = s < 0 ? s * 0x80 : s * 0x7F;
-        view.setInt8(offset, Math.floor(intSample));
-        offset += 1;
+  for (let offset = 0; offset < numSamples; offset += CHUNK_FRAMES) {
+    const chunkFrames = Math.min(CHUNK_FRAMES, numSamples - offset);
+    const chunkBytes = chunkFrames * numChannels * bytesPerSample;
+    const chunkArray = new Uint8Array(chunkBytes);
+    const chunkView = new DataView(chunkArray.buffer);
+
+    let byteOffset = 0;
+
+    if (bitDepth === 8) {
+      for (let i = 0; i < chunkFrames; i++) {
+        const frameIdx = offset + i;
+        for (let c = 0; c < numChannels; c++) {
+          const s = Math.max(-1, Math.min(1, channelData[c][frameIdx]));
+          const intSample = s < 0 ? s * 0x80 : s * 0x7f;
+          chunkView.setInt8(byteOffset, Math.floor(intSample));
+          byteOffset += 1;
+        }
+      }
+    } else if (bitDepth === 16) {
+      for (let i = 0; i < chunkFrames; i++) {
+        const frameIdx = offset + i;
+        for (let c = 0; c < numChannels; c++) {
+          const s = Math.max(-1, Math.min(1, channelData[c][frameIdx]));
+          const intSample = s < 0 ? s * 0x8000 : s * 0x7fff;
+          chunkView.setInt16(byteOffset, Math.floor(intSample), false); // big-endian
+          byteOffset += 2;
+        }
+      }
+    } else if (bitDepth === 24) {
+      for (let i = 0; i < chunkFrames; i++) {
+        const frameIdx = offset + i;
+        for (let c = 0; c < numChannels; c++) {
+          const s = Math.max(-1, Math.min(1, channelData[c][frameIdx]));
+          const intSample = s < 0 ? s * 0x800000 : s * 0x7fffff;
+          const int24 = Math.floor(intSample);
+          chunkArray[byteOffset] = (int24 >> 16) & 0xff;
+          chunkArray[byteOffset + 1] = (int24 >> 8) & 0xff;
+          chunkArray[byteOffset + 2] = int24 & 0xff;
+          byteOffset += 3;
+        }
+      }
+    } else if (bitDepth === 32) {
+      for (let i = 0; i < chunkFrames; i++) {
+        const frameIdx = offset + i;
+        for (let c = 0; c < numChannels; c++) {
+          chunkView.setFloat32(byteOffset, channelData[c][frameIdx], false); // big-endian float
+          byteOffset += 4;
+        }
       }
     }
-  } else if (bitDepth === 16) {
-    for (let i = 0; i < numSamples; i++) {
-      for (let c = 0; c < numChannels; c++) {
-        const s = Math.max(-1, Math.min(1, channelData[c][i]));
-        const intSample = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        view.setInt16(offset, Math.floor(intSample), false); // big-endian
-        offset += 2;
-      }
-    }
-  } else if (bitDepth === 24) {
-    for (let i = 0; i < numSamples; i++) {
-      for (let c = 0; c < numChannels; c++) {
-        const s = Math.max(-1, Math.min(1, channelData[c][i]));
-        const intSample = s < 0 ? s * 0x800000 : s * 0x7FFFFF;
-        const int24 = Math.floor(intSample);
-        view.setUint8(offset, (int24 >> 16) & 0xff);
-        view.setUint8(offset + 1, (int24 >> 8) & 0xff);
-        view.setUint8(offset + 2, int24 & 0xff);
-        offset += 3;
-      }
-    }
-  } else if (bitDepth === 32) {
-    for (let i = 0; i < numSamples; i++) {
-      for (let c = 0; c < numChannels; c++) {
-        view.setFloat32(offset, channelData[c][i], false); // big-endian float
-        offset += 4;
-      }
+
+    chunks.push(chunkArray);
+
+    if (options.onProgress && offset % (CHUNK_FRAMES * 8) === 0) {
+      options.onProgress(Math.min(0.98, offset / numSamples));
+      await new Promise((r) => setTimeout(r, 0));
     }
   }
 
@@ -120,5 +146,5 @@ export async function encodeAu(
     options.onProgress(1.0);
   }
 
-  return new Blob([arrayBuffer], { type: 'audio/basic' });
+  return new Blob(chunks as unknown as BlobPart[], { type: 'audio/basic' });
 }

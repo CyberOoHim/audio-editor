@@ -1,3 +1,8 @@
+/**
+ * Direct Chunk-Streamed Raw PCM Encoder.
+ * Writes directly to chunked Blob streams without allocating monolithic multi-gigabyte ArrayBuffers.
+ */
+
 export interface RawPcmEncoderOptions {
   bitDepth?: 8 | 16 | 24 | 32;
   endian?: 'little' | 'big';
@@ -7,7 +12,7 @@ export interface RawPcmEncoderOptions {
 }
 
 /**
- * Encodes an AudioBuffer into headerless raw PCM samples (.raw / .pcm).
+ * Encodes an AudioBuffer into headerless raw PCM samples (.raw / .pcm) using chunk streaming.
  */
 export async function encodeRawPcm(
   buffer: AudioBuffer,
@@ -42,58 +47,76 @@ export async function encodeRawPcm(
   else if (bitDepth === 24) bytesPerSample = 3;
   else if (bitDepth === 32) bytesPerSample = 4;
 
-  const totalSize = numSamples * numChannels * bytesPerSample;
-  const arrayBuffer = new ArrayBuffer(totalSize);
-  const view = new DataView(arrayBuffer);
+  const chunks: BlobPart[] = [];
+  const CHUNK_FRAMES = 32768;
 
-  let offset = 0;
   const channelData: Float32Array[] = [];
   for (let c = 0; c < numChannels; c++) {
     channelData.push(sourceBuffer.getChannelData(c < sourceBuffer.numberOfChannels ? c : 0));
   }
 
-  if (bitDepth === 8) {
-    for (let i = 0; i < numSamples; i++) {
-      for (let c = 0; c < numChannels; c++) {
-        const s = Math.max(-1, Math.min(1, channelData[c][i]));
-        const intSample = s < 0 ? s * 0x80 : s * 0x7F;
-        view.setInt8(offset, Math.floor(intSample));
-        offset += 1;
-      }
-    }
-  } else if (bitDepth === 16) {
-    for (let i = 0; i < numSamples; i++) {
-      for (let c = 0; c < numChannels; c++) {
-        const s = Math.max(-1, Math.min(1, channelData[c][i]));
-        const intSample = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        view.setInt16(offset, Math.floor(intSample), isLittle);
-        offset += 2;
-      }
-    }
-  } else if (bitDepth === 24) {
-    for (let i = 0; i < numSamples; i++) {
-      for (let c = 0; c < numChannels; c++) {
-        const s = Math.max(-1, Math.min(1, channelData[c][i]));
-        const intSample = s < 0 ? s * 0x800000 : s * 0x7FFFFF;
-        const int24 = Math.floor(intSample);
-        if (isLittle) {
-          view.setUint8(offset, int24 & 0xff);
-          view.setUint8(offset + 1, (int24 >> 8) & 0xff);
-          view.setUint8(offset + 2, (int24 >> 16) & 0xff);
-        } else {
-          view.setUint8(offset, (int24 >> 16) & 0xff);
-          view.setUint8(offset + 1, (int24 >> 8) & 0xff);
-          view.setUint8(offset + 2, int24 & 0xff);
+  for (let offset = 0; offset < numSamples; offset += CHUNK_FRAMES) {
+    const chunkFrames = Math.min(CHUNK_FRAMES, numSamples - offset);
+    const chunkBytes = chunkFrames * numChannels * bytesPerSample;
+    const chunkArray = new Uint8Array(chunkBytes);
+    const chunkView = new DataView(chunkArray.buffer);
+
+    let byteOffset = 0;
+
+    if (bitDepth === 8) {
+      for (let i = 0; i < chunkFrames; i++) {
+        const frameIdx = offset + i;
+        for (let c = 0; c < numChannels; c++) {
+          const s = Math.max(-1, Math.min(1, channelData[c][frameIdx]));
+          const intSample = s < 0 ? s * 0x80 : s * 0x7f;
+          chunkView.setInt8(byteOffset, Math.floor(intSample));
+          byteOffset += 1;
         }
-        offset += 3;
+      }
+    } else if (bitDepth === 16) {
+      for (let i = 0; i < chunkFrames; i++) {
+        const frameIdx = offset + i;
+        for (let c = 0; c < numChannels; c++) {
+          const s = Math.max(-1, Math.min(1, channelData[c][frameIdx]));
+          const intSample = s < 0 ? s * 0x8000 : s * 0x7fff;
+          chunkView.setInt16(byteOffset, Math.floor(intSample), isLittle);
+          byteOffset += 2;
+        }
+      }
+    } else if (bitDepth === 24) {
+      for (let i = 0; i < chunkFrames; i++) {
+        const frameIdx = offset + i;
+        for (let c = 0; c < numChannels; c++) {
+          const s = Math.max(-1, Math.min(1, channelData[c][frameIdx]));
+          const intSample = s < 0 ? s * 0x800000 : s * 0x7fffff;
+          const int24 = Math.floor(intSample);
+          if (isLittle) {
+            chunkArray[byteOffset] = int24 & 0xff;
+            chunkArray[byteOffset + 1] = (int24 >> 8) & 0xff;
+            chunkArray[byteOffset + 2] = (int24 >> 16) & 0xff;
+          } else {
+            chunkArray[byteOffset] = (int24 >> 16) & 0xff;
+            chunkArray[byteOffset + 1] = (int24 >> 8) & 0xff;
+            chunkArray[byteOffset + 2] = int24 & 0xff;
+          }
+          byteOffset += 3;
+        }
+      }
+    } else if (bitDepth === 32) {
+      for (let i = 0; i < chunkFrames; i++) {
+        const frameIdx = offset + i;
+        for (let c = 0; c < numChannels; c++) {
+          chunkView.setFloat32(byteOffset, channelData[c][frameIdx], isLittle);
+          byteOffset += 4;
+        }
       }
     }
-  } else if (bitDepth === 32) {
-    for (let i = 0; i < numSamples; i++) {
-      for (let c = 0; c < numChannels; c++) {
-        view.setFloat32(offset, channelData[c][i], isLittle);
-        offset += 4;
-      }
+
+    chunks.push(chunkArray);
+
+    if (options.onProgress && offset % (CHUNK_FRAMES * 8) === 0) {
+      options.onProgress(Math.min(0.98, offset / numSamples));
+      await new Promise((r) => setTimeout(r, 0));
     }
   }
 
@@ -101,5 +124,5 @@ export async function encodeRawPcm(
     options.onProgress(1.0);
   }
 
-  return new Blob([arrayBuffer], { type: 'application/octet-stream' });
+  return new Blob(chunks as unknown as BlobPart[], { type: 'application/octet-stream' });
 }

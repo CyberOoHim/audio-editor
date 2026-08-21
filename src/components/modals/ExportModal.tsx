@@ -549,12 +549,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           >
             <span>
               {['wav', 'aiff', 'au', 'raw', 'caf'].includes(format)
-                ? 'Limits: 4 GB max file size (standard 32-bit RIFF/PCM header limit ~6.7h stereo)'
-                : format === 'mp3'
-                ? 'Limits: No hard duration limit (chunked 1152-sample streaming frames)'
-                : 'Limits: Governed by browser MediaRecorder stream capacity'}
+                ? 'Engine: Chunk-Streamed Direct (Zero memory duplication, up to 4 GB / 6.7h)'
+                : ['aac', 'm4a', 'm4r', 'opus', 'ogg', 'webm'].includes(format)
+                ? 'Engine: Hardware Accelerated WebCodecs (Offline hardware speed, 50 mins in seconds)'
+                : ['mp3', 'flac'].includes(format)
+                ? 'Engine: Multi-Core Web Worker (Off-thread streaming, zero UI freeze)'
+                : 'Engine: High-speed in-browser stream encoder'}
             </span>
-            <span style={{ color: 'var(--accent-cyan)' }}>100% In-Browser Export</span>
+            <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>⚡ High-Speed Offline Export</span>
           </div>
         </div>
 

@@ -184,10 +184,10 @@ export async function exportAudio(
       blob = await encodeWav(targetBuffer, {
         bitDepth: settings.wavBitDepth,
         channels: settings.channels,
-        sampleRate: settings.sampleRate
+        sampleRate: settings.sampleRate,
+        onProgress
       });
       extension = 'wav';
-      if (onProgress) onProgress(1.0);
       break;
   }
 
