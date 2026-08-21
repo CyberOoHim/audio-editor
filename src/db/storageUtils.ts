@@ -51,13 +51,15 @@ export function generateWaveformPeaks(buffer: AudioBuffer, numPeaks: number = 64
 
   if (blockSize === 0) return peaks;
 
+  const stride = blockSize > 256 ? Math.max(1, Math.floor(blockSize / 128)) : 4;
+
   for (let c = 0; c < channels; c++) {
     const channelData = buffer.getChannelData(c);
     for (let i = 0; i < numPeaks; i++) {
       const start = i * blockSize;
       const end = Math.min(start + blockSize, length);
       let max = 0;
-      for (let j = start; j < end; j += 4) { // stride for performance
+      for (let j = start; j < end; j += stride) {
         const val = Math.abs(channelData[j]);
         if (val > max) max = val;
       }

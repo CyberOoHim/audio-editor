@@ -105,15 +105,22 @@ export function muteRegion(
   startSec: number,
   endSec: number
 ): AudioBuffer {
-  const target = cloneBuffer(ctx, source);
-  const sampleRate = target.sampleRate;
+  const sampleRate = source.sampleRate;
+  const channels = source.numberOfChannels;
+  const length = source.length;
   const startSample = Math.max(0, Math.floor(startSec * sampleRate));
-  const endSample = Math.min(target.length, Math.floor(endSec * sampleRate));
+  const endSample = Math.min(length, Math.floor(endSec * sampleRate));
 
-  for (let c = 0; c < target.numberOfChannels; c++) {
+  const target = ctx.createBuffer(channels, length, sampleRate);
+  for (let c = 0; c < channels; c++) {
+    const srcData = source.getChannelData(c);
     const dstData = target.getChannelData(c);
-    for (let i = startSample; i < endSample; i++) {
-      dstData[i] = 0;
+    if (startSample > 0) {
+      dstData.set(srcData.subarray(0, startSample), 0);
+    }
+    // [startSample..endSample] is already 0 in newly created AudioBuffer
+    if (endSample < length) {
+      dstData.set(srcData.subarray(endSample, length), endSample);
     }
   }
   return target;
@@ -126,17 +133,28 @@ export function applyGain(
   startSec?: number,
   endSec?: number
 ): AudioBuffer {
-  const target = cloneBuffer(ctx, source);
+  const sampleRate = source.sampleRate;
+  const channels = source.numberOfChannels;
+  const length = source.length;
+  const target = ctx.createBuffer(channels, length, sampleRate);
   const linearGain = Math.pow(10, gainDb / 20);
-  const sampleRate = target.sampleRate;
   
   const startSample = startSec !== undefined ? Math.max(0, Math.floor(startSec * sampleRate)) : 0;
-  const endSample = endSec !== undefined ? Math.min(target.length, Math.floor(endSec * sampleRate)) : target.length;
+  const endSample = endSec !== undefined ? Math.min(length, Math.floor(endSec * sampleRate)) : length;
 
-  for (let c = 0; c < target.numberOfChannels; c++) {
+  for (let c = 0; c < channels; c++) {
+    const srcData = source.getChannelData(c);
     const dstData = target.getChannelData(c);
+
+    if (startSample > 0) {
+      dstData.set(srcData.subarray(0, startSample), 0);
+    }
     for (let i = startSample; i < endSample; i++) {
-      dstData[i] = Math.max(-1, Math.min(1, dstData[i] * linearGain));
+      const v = srcData[i] * linearGain;
+      dstData[i] = v > 1 ? 1 : v < -1 ? -1 : v;
+    }
+    if (endSample < length) {
+      dstData.set(srcData.subarray(endSample, length), endSample);
     }
   }
   return target;
@@ -149,30 +167,44 @@ export function normalizeBuffer(
   startSec?: number,
   endSec?: number
 ): AudioBuffer {
-  const target = cloneBuffer(ctx, source);
-  const sampleRate = target.sampleRate;
-  
+  const sampleRate = source.sampleRate;
+  const channels = source.numberOfChannels;
+  const length = source.length;
   const startSample = startSec !== undefined ? Math.max(0, Math.floor(startSec * sampleRate)) : 0;
-  const endSample = endSec !== undefined ? Math.min(target.length, Math.floor(endSec * sampleRate)) : target.length;
+  const endSample = endSec !== undefined ? Math.min(length, Math.floor(endSec * sampleRate)) : length;
 
   let peak = 0;
-  for (let c = 0; c < target.numberOfChannels; c++) {
-    const data = target.getChannelData(c);
+  for (let c = 0; c < channels; c++) {
+    const data = source.getChannelData(c);
     for (let i = startSample; i < endSample; i++) {
       const absVal = Math.abs(data[i]);
       if (absVal > peak) peak = absVal;
     }
   }
 
-  if (peak === 0) return target;
+  const target = ctx.createBuffer(channels, length, sampleRate);
+  if (peak === 0) {
+    for (let c = 0; c < channels; c++) {
+      target.getChannelData(c).set(source.getChannelData(c));
+    }
+    return target;
+  }
 
   const targetLinear = Math.pow(10, targetDb / 20);
   const multiplier = targetLinear / peak;
 
-  for (let c = 0; c < target.numberOfChannels; c++) {
+  for (let c = 0; c < channels; c++) {
+    const srcData = source.getChannelData(c);
     const dstData = target.getChannelData(c);
+    if (startSample > 0) {
+      dstData.set(srcData.subarray(0, startSample), 0);
+    }
     for (let i = startSample; i < endSample; i++) {
-      dstData[i] = Math.max(-1, Math.min(1, dstData[i] * multiplier));
+      const v = srcData[i] * multiplier;
+      dstData[i] = v > 1 ? 1 : v < -1 ? -1 : v;
+    }
+    if (endSample < length) {
+      dstData.set(srcData.subarray(endSample, length), endSample);
     }
   }
   return target;
@@ -186,14 +218,22 @@ export function applyFade(
   type: 'in' | 'out',
   curve: FadeCurve = 'linear'
 ): AudioBuffer {
-  const target = cloneBuffer(ctx, source);
-  const sampleRate = target.sampleRate;
+  const sampleRate = source.sampleRate;
+  const channels = source.numberOfChannels;
+  const length = source.length;
   const startSample = Math.max(0, Math.floor(startSec * sampleRate));
   const fadeLength = Math.max(1, Math.floor(durationSec * sampleRate));
-  const endSample = Math.min(target.length, startSample + fadeLength);
+  const endSample = Math.min(length, startSample + fadeLength);
 
-  for (let c = 0; c < target.numberOfChannels; c++) {
-    const data = target.getChannelData(c);
+  const target = ctx.createBuffer(channels, length, sampleRate);
+
+  for (let c = 0; c < channels; c++) {
+    const srcData = source.getChannelData(c);
+    const dstData = target.getChannelData(c);
+
+    if (startSample > 0) {
+      dstData.set(srcData.subarray(0, startSample), 0);
+    }
     for (let i = startSample; i < endSample; i++) {
       const progress = (i - startSample) / fadeLength;
       let factor = type === 'in' ? progress : (1 - progress);
@@ -215,7 +255,10 @@ export function applyFade(
           break;
       }
 
-      data[i] = data[i] * factor;
+      dstData[i] = srcData[i] * factor;
+    }
+    if (endSample < length) {
+      dstData.set(srcData.subarray(endSample, length), endSample);
     }
   }
   return target;
@@ -227,16 +270,28 @@ export function reverseBuffer(
   startSec?: number,
   endSec?: number
 ): AudioBuffer {
-  const target = cloneBuffer(ctx, source);
-  const sampleRate = target.sampleRate;
+  const sampleRate = source.sampleRate;
+  const channels = source.numberOfChannels;
+  const length = source.length;
   const startSample = startSec !== undefined ? Math.max(0, Math.floor(startSec * sampleRate)) : 0;
-  const endSample = endSec !== undefined ? Math.min(target.length, Math.floor(endSec * sampleRate)) : target.length;
+  const endSample = endSec !== undefined ? Math.min(length, Math.floor(endSec * sampleRate)) : length;
 
-  for (let c = 0; c < target.numberOfChannels; c++) {
-    const data = target.getChannelData(c);
-    const region = data.subarray(startSample, endSample);
-    const reversed = new Float32Array(region).reverse();
-    data.set(reversed, startSample);
+  const target = ctx.createBuffer(channels, length, sampleRate);
+
+  for (let c = 0; c < channels; c++) {
+    const srcData = source.getChannelData(c);
+    const dstData = target.getChannelData(c);
+
+    if (startSample > 0) {
+      dstData.set(srcData.subarray(0, startSample), 0);
+    }
+    // Reverse directly from source into target without intermediate array allocation
+    for (let i = startSample; i < endSample; i++) {
+      dstData[i] = srcData[endSample - 1 - (i - startSample)];
+    }
+    if (endSample < length) {
+      dstData.set(srcData.subarray(endSample, length), endSample);
+    }
   }
   return target;
 }
@@ -247,15 +302,26 @@ export function invertPhase(
   startSec?: number,
   endSec?: number
 ): AudioBuffer {
-  const target = cloneBuffer(ctx, source);
-  const sampleRate = target.sampleRate;
+  const sampleRate = source.sampleRate;
+  const channels = source.numberOfChannels;
+  const length = source.length;
   const startSample = startSec !== undefined ? Math.max(0, Math.floor(startSec * sampleRate)) : 0;
-  const endSample = endSec !== undefined ? Math.min(target.length, Math.floor(endSec * sampleRate)) : target.length;
+  const endSample = endSec !== undefined ? Math.min(length, Math.floor(endSec * sampleRate)) : length;
 
-  for (let c = 0; c < target.numberOfChannels; c++) {
-    const data = target.getChannelData(c);
+  const target = ctx.createBuffer(channels, length, sampleRate);
+
+  for (let c = 0; c < channels; c++) {
+    const srcData = source.getChannelData(c);
+    const dstData = target.getChannelData(c);
+
+    if (startSample > 0) {
+      dstData.set(srcData.subarray(0, startSample), 0);
+    }
     for (let i = startSample; i < endSample; i++) {
-      data[i] = -data[i];
+      dstData[i] = -srcData[i];
+    }
+    if (endSample < length) {
+      dstData.set(srcData.subarray(endSample, length), endSample);
     }
   }
   return target;

@@ -106,8 +106,7 @@ export class AudioEngine {
     this.currentBuffer = buffer;
     this.startOffset = 0;
     
-    const ctx = this.getContext();
-    this.history.reset(buffer, ctx, historyDescription || 'Loaded Audio');
+    this.history.reset(buffer, historyDescription || 'Loaded Audio');
 
     this.notifyBufferListeners();
     this.notifyTimeListeners(0);
@@ -124,14 +123,12 @@ export class AudioEngine {
   public setBufferDirectly(buffer: AudioBuffer, description: string): void {
     this.stop();
     this.currentBuffer = buffer;
-    const ctx = this.getContext();
-    this.history.push(description, buffer, ctx);
+    this.history.push(description, buffer);
     this.notifyBufferListeners();
   }
 
   public undo(): boolean {
-    const ctx = this.getContext();
-    const result = this.history.undo(ctx);
+    const result = this.history.undo();
     if (result) {
       this.stop();
       this.currentBuffer = result.buffer;
@@ -142,8 +139,7 @@ export class AudioEngine {
   }
 
   public redo(): boolean {
-    const ctx = this.getContext();
-    const result = this.history.redo(ctx);
+    const result = this.history.redo();
     if (result) {
       this.stop();
       this.currentBuffer = result.buffer;

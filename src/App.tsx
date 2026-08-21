@@ -223,7 +223,7 @@ export function AudioStudioApp() {
       if (!decodedBuffer) {
         const audioCtx = audioEngine.getContext();
         const arrayBuffer = await fileItem.blob.arrayBuffer();
-        decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+        decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
       }
 
       setActiveFileId(fileItem.id);
