@@ -19,14 +19,16 @@ export class StudioRecorder {
   private splitterNode: ChannelSplitterNode | null = null;
   private analyserL: AnalyserNode | null = null;
   private analyserR: AnalyserNode | null = null;
+  private workletNode: AudioWorkletNode | null = null;
   private processorNode: ScriptProcessorNode | null = null;
-  
+  private silentGain: GainNode | null = null;
+
   private leftChannelData: Float32Array[] = [];
   private rightChannelData: Float32Array[] = [];
   private recordedSamples: number = 0;
   private sampleRate: number = 48000;
   private gainDb: number = 0;
-  
+
   private isRecording: boolean = false;
   private isPaused: boolean = false;
   private startTime: number = 0;
@@ -35,6 +37,8 @@ export class StudioRecorder {
   private memoryLimitListeners: Set<MemoryLimitCallback> = new Set();
   private animFrameId: number | null = null;
   private hitMemoryLimit: boolean = false;
+  private visibilityHandler: (() => void) | null = null;
+  private flushWaiters: Array<() => void> = [];
 
   constructor(initialGainDb: number = 0) {
     this.gainDb = initialGainDb;
@@ -56,7 +60,7 @@ export class StudioRecorder {
   }
 
   public async start(initialGainDb?: number): Promise<void> {
-    this.stop();
+    await this.stop();
     if (initialGainDb !== undefined) {
       this.gainDb = initialGainDb;
     }
@@ -74,7 +78,6 @@ export class StudioRecorder {
       }
       this.sampleRate = this.audioCtx.sampleRate;
 
-      // High quality studio constraints
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: false,
@@ -88,7 +91,6 @@ export class StudioRecorder {
 
       this.sourceNode = this.audioCtx.createMediaStreamSource(this.mediaStream);
 
-      // Gain boost node configured for stereo with explicit upmixing (mono -> stereo duplication)
       this.gainNode = this.audioCtx.createGain();
       this.gainNode.channelCount = 2;
       this.gainNode.channelCountMode = 'explicit';
@@ -98,7 +100,6 @@ export class StudioRecorder {
       this.gainNode.gain.setValueAtTime(linearGain, this.audioCtx.currentTime);
       this.sourceNode.connect(this.gainNode);
 
-      // Channel splitter for independent Left and Right live analysers
       this.splitterNode = this.audioCtx.createChannelSplitter(2);
       this.gainNode.connect(this.splitterNode);
 
@@ -112,53 +113,15 @@ export class StudioRecorder {
       this.analyserR.smoothingTimeConstant = 0.7;
       this.splitterNode.connect(this.analyserR, 1);
 
-      // Buffer processor (4096 buffer size, 2 inputs, 2 outputs)
-      this.processorNode = this.audioCtx.createScriptProcessor(4096, 2, 2);
-      this.processorNode.onaudioprocess = (e) => {
-        if (!this.isRecording || this.isPaused) return;
+      this.silentGain = this.audioCtx.createGain();
+      this.silentGain.gain.value = 0;
 
-        const numChannels = e.inputBuffer.numberOfChannels;
-        const inputL = e.inputBuffer.getChannelData(0);
-        const inputR = numChannels > 1 ? e.inputBuffer.getChannelData(1) : inputL;
+      const usedWorklet = await this.connectCaptureWorklet();
+      if (!usedWorklet) {
+        this.connectCaptureScriptProcessor();
+      }
 
-        // Verify if channel 1 has non-zero audio (or if browser fed silence on right channel for mono mic)
-        let hasRightAudio = false;
-        if (numChannels > 1) {
-          const stride = inputR.length > 64 ? 8 : 1;
-          for (let i = 0; i < inputR.length; i += stride) {
-            if (Math.abs(inputR[i]) > 1e-5) {
-              hasRightAudio = true;
-              break;
-            }
-          }
-        }
-
-        // Copy buffer chunks - ensure both channels are populated with full sound
-        const chunkL = new Float32Array(inputL.length);
-        chunkL.set(inputL);
-        this.leftChannelData.push(chunkL);
-
-        const chunkR = new Float32Array(inputL.length);
-        chunkR.set(hasRightAudio ? inputR : inputL);
-        this.rightChannelData.push(chunkR);
-
-        this.recordedSamples += inputL.length;
-
-        if (!this.hitMemoryLimit) {
-          const pcmBytes = this.recordedSamples * 2 * 4;
-          const profile = getMemoryProfile();
-          const maxSec = getMaxDurationSec(2, this.sampleRate);
-          const durationSec = this.recordedSamples / this.sampleRate;
-          if (pcmBytes >= profile.maxLoadBytes * 0.82 || durationSec >= maxSec * 0.95) {
-            this.hitMemoryLimit = true;
-            this.isRecording = false;
-            this.memoryLimitListeners.forEach((fn) => fn());
-          }
-        }
-      };
-
-      this.gainNode.connect(this.processorNode);
-      this.processorNode.connect(this.audioCtx.destination);
+      this.silentGain.connect(this.audioCtx.destination);
 
       this.isRecording = true;
       this.isPaused = false;
@@ -171,22 +134,7 @@ export class StudioRecorder {
         stream.getTracks().forEach(track => track.stop());
         this.mediaStream = null;
       }
-      if (this.splitterNode) {
-        this.splitterNode.disconnect();
-        this.splitterNode = null;
-      }
-      if (this.analyserL) {
-        this.analyserL.disconnect();
-        this.analyserL = null;
-      }
-      if (this.analyserR) {
-        this.analyserR.disconnect();
-        this.analyserR = null;
-      }
-      if (this.gainNode) {
-        this.gainNode.disconnect();
-        this.gainNode = null;
-      }
+      this.disconnectGraph();
       if (this.audioCtx && this.audioCtx.state !== 'closed') {
         this.audioCtx.close().catch(() => {});
         this.audioCtx = null;
@@ -195,10 +143,87 @@ export class StudioRecorder {
     }
   }
 
+  private async connectCaptureWorklet(): Promise<boolean> {
+    if (!this.audioCtx || !this.gainNode || !this.silentGain) return false;
+    if (typeof this.audioCtx.audioWorklet?.addModule !== 'function') return false;
+
+    try {
+      await this.audioCtx.audioWorklet.addModule(
+        new URL('capture-worklet.js', document.baseURI).href
+      );
+      this.workletNode = new AudioWorkletNode(this.audioCtx, 'studio-capture', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+        channelCount: 2,
+        channelCountMode: 'explicit',
+        channelInterpretation: 'speakers'
+      });
+      this.workletNode.port.onmessage = (event: MessageEvent) => {
+        const data = event.data as { type?: string; ch0?: Float32Array; ch1?: Float32Array };
+        if (data?.type === 'chunk' && data.ch0) {
+          this.appendChunk(data.ch0, data.ch1 || data.ch0);
+        } else if (data?.type === 'flushed') {
+          const waiters = this.flushWaiters;
+          this.flushWaiters = [];
+          waiters.forEach((fn) => fn());
+        }
+      };
+      this.gainNode.connect(this.workletNode);
+      this.workletNode.connect(this.silentGain);
+      return true;
+    } catch {
+      this.workletNode = null;
+      return false;
+    }
+  }
+
+  private connectCaptureScriptProcessor(): void {
+    if (!this.audioCtx || !this.gainNode || !this.silentGain) return;
+
+    this.processorNode = this.audioCtx.createScriptProcessor(4096, 2, 2);
+    this.processorNode.onaudioprocess = (e) => {
+      if (!this.isRecording || this.isPaused) return;
+      const numChannels = e.inputBuffer.numberOfChannels;
+      const inputL = e.inputBuffer.getChannelData(0);
+      const inputR = numChannels > 1 ? e.inputBuffer.getChannelData(1) : inputL;
+      this.appendChunk(inputL, inputR, true);
+    };
+
+    this.gainNode.connect(this.processorNode);
+    this.processorNode.connect(this.silentGain);
+  }
+
+  private appendChunk(inputL: Float32Array, inputR: Float32Array, copyRequired = false): void {
+    if (!this.isRecording || this.isPaused || this.hitMemoryLimit) return;
+
+    const chunkL = copyRequired ? new Float32Array(inputL) : inputL;
+    const chunkR = copyRequired ? new Float32Array(inputR.length) : inputR;
+    if (copyRequired) {
+      chunkR.set(inputR);
+    }
+
+    this.leftChannelData.push(chunkL);
+    this.rightChannelData.push(chunkR);
+    this.recordedSamples += inputL.length;
+
+    const pcmBytes = this.recordedSamples * 2 * 4;
+    const profile = getMemoryProfile();
+    const maxSec = getMaxDurationSec(2, this.sampleRate);
+    const durationSec = this.recordedSamples / this.sampleRate;
+    if (pcmBytes >= profile.maxLoadBytes * 0.82 || durationSec >= maxSec * 0.95) {
+      this.hitMemoryLimit = true;
+      this.isRecording = false;
+      this.memoryLimitListeners.forEach((fn) => fn());
+    }
+  }
+
   public pause(): void {
     if (this.isRecording && !this.isPaused) {
       this.isPaused = true;
       this.pausedTimeOffset += performance.now() - this.startTime;
+      this.workletNode?.port.postMessage({ type: 'pause' });
+      this.stopMetricsLoop();
     }
   }
 
@@ -206,48 +231,48 @@ export class StudioRecorder {
     if (this.isRecording && this.isPaused) {
       this.isPaused = false;
       this.startTime = performance.now();
+      this.workletNode?.port.postMessage({ type: 'resume' });
+      this.startMetricsLoop();
     }
   }
 
-  public stop(): AudioBuffer | null {
+  private async flushCapture(): Promise<void> {
+    const node = this.workletNode;
+    if (!node) return;
+
+    await new Promise<void>((resolve) => {
+      const timeout = window.setTimeout(() => {
+        this.flushWaiters = this.flushWaiters.filter((fn) => fn !== onFlushed);
+        resolve();
+      }, 80);
+      const onFlushed = () => {
+        window.clearTimeout(timeout);
+        resolve();
+      };
+      this.flushWaiters.push(onFlushed);
+      try {
+        node.port.postMessage({ type: 'flush' });
+      } catch {
+        window.clearTimeout(timeout);
+        this.flushWaiters = this.flushWaiters.filter((fn) => fn !== onFlushed);
+        resolve();
+      }
+    });
+  }
+
+  public async stop(): Promise<AudioBuffer | null> {
+    if (this.workletNode && this.isRecording) {
+      this.isPaused = false;
+      this.workletNode.port.postMessage({ type: 'resume' });
+      await this.flushCapture();
+    }
     this.isRecording = false;
     this.isPaused = false;
-    this.stopMetricsLoop();
+    this.disconnectGraph();
 
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach(track => track.stop());
       this.mediaStream = null;
-    }
-
-    if (this.processorNode) {
-      this.processorNode.disconnect();
-      this.processorNode.onaudioprocess = null;
-      this.processorNode = null;
-    }
-
-    if (this.splitterNode) {
-      this.splitterNode.disconnect();
-      this.splitterNode = null;
-    }
-
-    if (this.analyserL) {
-      this.analyserL.disconnect();
-      this.analyserL = null;
-    }
-
-    if (this.analyserR) {
-      this.analyserR.disconnect();
-      this.analyserR = null;
-    }
-
-    if (this.gainNode) {
-      this.gainNode.disconnect();
-      this.gainNode = null;
-    }
-
-    if (this.sourceNode) {
-      this.sourceNode.disconnect();
-      this.sourceNode = null;
     }
 
     if (this.recordedSamples === 0 || !this.audioCtx) {
@@ -258,7 +283,6 @@ export class StudioRecorder {
       return null;
     }
 
-    // Safety check: ensure Right channel has audio (fall back to Left if silent)
     let rightHasSignal = false;
     for (let i = 0; i < this.rightChannelData.length; i++) {
       const chunk = this.rightChannelData[i];
@@ -272,7 +296,6 @@ export class StudioRecorder {
       if (rightHasSignal) break;
     }
 
-    // Merge Float32Array chunks into single AudioBuffer with both channels populated
     const audioBuffer = this.audioCtx.createBuffer(2, this.recordedSamples, this.sampleRate);
     const outL = audioBuffer.getChannelData(0);
     const outR = audioBuffer.getChannelData(1);
@@ -284,7 +307,6 @@ export class StudioRecorder {
       outL.set(chunkL, offset);
       outR.set(chunkR, offset);
       offset += chunkL.length;
-      // Drop captured chunks immediately so peak RAM is dest + remaining chunks, not 2x
       this.leftChannelData[i] = null as unknown as Float32Array;
       this.rightChannelData[i] = null as unknown as Float32Array;
     }
@@ -300,42 +322,11 @@ export class StudioRecorder {
   public cancel(): void {
     this.isRecording = false;
     this.isPaused = false;
-    this.stopMetricsLoop();
+    this.disconnectGraph();
 
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach(track => track.stop());
       this.mediaStream = null;
-    }
-
-    if (this.processorNode) {
-      this.processorNode.disconnect();
-      this.processorNode.onaudioprocess = null;
-      this.processorNode = null;
-    }
-
-    if (this.splitterNode) {
-      this.splitterNode.disconnect();
-      this.splitterNode = null;
-    }
-
-    if (this.analyserL) {
-      this.analyserL.disconnect();
-      this.analyserL = null;
-    }
-
-    if (this.analyserR) {
-      this.analyserR.disconnect();
-      this.analyserR = null;
-    }
-
-    if (this.gainNode) {
-      this.gainNode.disconnect();
-      this.gainNode = null;
-    }
-
-    if (this.sourceNode) {
-      this.sourceNode.disconnect();
-      this.sourceNode = null;
     }
 
     if (this.audioCtx && this.audioCtx.state !== 'closed') {
@@ -378,62 +369,124 @@ export class StudioRecorder {
     return this.hitMemoryLimit;
   }
 
+  private disconnectGraph(): void {
+    this.stopMetricsLoop();
+
+    if (this.workletNode) {
+      try {
+        this.workletNode.port.onmessage = null;
+        this.workletNode.disconnect();
+      } catch {
+        // already disconnected
+      }
+      this.workletNode = null;
+    }
+
+    if (this.processorNode) {
+      this.processorNode.onaudioprocess = null;
+      this.processorNode.disconnect();
+      this.processorNode = null;
+    }
+
+    if (this.silentGain) {
+      this.silentGain.disconnect();
+      this.silentGain = null;
+    }
+
+    if (this.splitterNode) {
+      this.splitterNode.disconnect();
+      this.splitterNode = null;
+    }
+
+    if (this.analyserL) {
+      this.analyserL.disconnect();
+      this.analyserL = null;
+    }
+
+    if (this.analyserR) {
+      this.analyserR.disconnect();
+      this.analyserR = null;
+    }
+
+    if (this.gainNode) {
+      this.gainNode.disconnect();
+      this.gainNode = null;
+    }
+
+    if (this.sourceNode) {
+      this.sourceNode.disconnect();
+      this.sourceNode = null;
+    }
+  }
+
   private startMetricsLoop(): void {
     this.stopMetricsLoop();
     const dataArrayL = new Uint8Array(256);
     const dataArrayR = new Uint8Array(256);
     let lastUpdate = 0;
-    const minInterval = 1000 / 30; // 30 FPS cap for VU meter calculations
+    const minInterval = 1000 / 15;
 
     const update = (timestamp: number) => {
-      if (this.isRecording) {
-        if (timestamp - lastUpdate >= minInterval) {
-          lastUpdate = timestamp;
-          let peakL = 0;
-          let rmsL = 0;
-          let peakR = 0;
-          let rmsR = 0;
+      if (!this.isRecording || this.isPaused) return;
 
-          if (this.analyserL) {
-            this.analyserL.getByteTimeDomainData(dataArrayL);
-            let sumSquaresL = 0;
-            for (let i = 0; i < dataArrayL.length; i++) {
-              const norm = (dataArrayL[i] - 128) / 128;
-              const absNorm = Math.abs(norm);
-              if (absNorm > peakL) peakL = absNorm;
-              sumSquaresL += norm * norm;
-            }
-            rmsL = Math.sqrt(sumSquaresL / dataArrayL.length);
+      if (document.hidden) {
+        this.animFrameId = null;
+        return;
+      }
+
+      if (timestamp - lastUpdate >= minInterval) {
+        lastUpdate = timestamp;
+        let peakL = 0;
+        let rmsL = 0;
+        let peakR = 0;
+        let rmsR = 0;
+
+        if (this.analyserL) {
+          this.analyserL.getByteTimeDomainData(dataArrayL);
+          let sumSquaresL = 0;
+          for (let i = 0; i < dataArrayL.length; i++) {
+            const norm = (dataArrayL[i] - 128) / 128;
+            const absNorm = Math.abs(norm);
+            if (absNorm > peakL) peakL = absNorm;
+            sumSquaresL += norm * norm;
           }
-
-          if (this.analyserR) {
-            this.analyserR.getByteTimeDomainData(dataArrayR);
-            let sumSquaresR = 0;
-            for (let i = 0; i < dataArrayR.length; i++) {
-              const norm = (dataArrayR[i] - 128) / 128;
-              const absNorm = Math.abs(norm);
-              if (absNorm > peakR) peakR = absNorm;
-              sumSquaresR += norm * norm;
-            }
-            rmsR = Math.sqrt(sumSquaresR / dataArrayR.length);
-          } else {
-            peakR = peakL;
-            rmsR = rmsL;
-          }
-
-          const metrics: RecorderMetrics = {
-            duration: this.getDuration(),
-            peakL,
-            peakR,
-            rmsL,
-            rmsR
-          };
-
-          this.metricsListeners.forEach(fn => fn(metrics));
+          rmsL = Math.sqrt(sumSquaresL / dataArrayL.length);
         }
+
+        if (this.analyserR) {
+          this.analyserR.getByteTimeDomainData(dataArrayR);
+          let sumSquaresR = 0;
+          for (let i = 0; i < dataArrayR.length; i++) {
+            const norm = (dataArrayR[i] - 128) / 128;
+            const absNorm = Math.abs(norm);
+            if (absNorm > peakR) peakR = absNorm;
+            sumSquaresR += norm * norm;
+          }
+          rmsR = Math.sqrt(sumSquaresR / dataArrayR.length);
+        } else {
+          peakR = peakL;
+          rmsR = rmsL;
+        }
+
+        const metrics: RecorderMetrics = {
+          duration: this.getDuration(),
+          peakL,
+          peakR,
+          rmsL,
+          rmsR
+        };
+
+        this.metricsListeners.forEach(fn => fn(metrics));
+      }
+      this.animFrameId = requestAnimationFrame(update);
+    };
+
+    this.visibilityHandler = () => {
+      if (!document.hidden && this.isRecording && !this.isPaused && this.animFrameId === null) {
         this.animFrameId = requestAnimationFrame(update);
       }
     };
+    document.addEventListener('visibilitychange', this.visibilityHandler);
 
     this.animFrameId = requestAnimationFrame(update);
   }
@@ -442,6 +495,10 @@ export class StudioRecorder {
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
+    }
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
     }
   }
 }

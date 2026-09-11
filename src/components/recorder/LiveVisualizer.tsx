@@ -5,19 +5,21 @@ export interface LiveVisualizerProps {
   mode?: 'oscilloscope' | 'frequency';
   width?: number;
   height?: number;
+  active?: boolean;
 }
 
 export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
   analyser,
   mode = 'oscilloscope',
   width = 460,
-  height = 120
+  height = 120,
+  active = true
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !analyser) return;
+    if (!canvas || !analyser || !active) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 1.25);
     const targetW = Math.round(width * dpr);
@@ -28,37 +30,28 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
       canvas.height = targetH;
     }
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
-    let animId: number;
+    let animId: number | null = null;
     let lastDraw = 0;
-    const minDrawInterval = 1000 / 30; // 30 FPS throttle
+    const minDrawInterval = 1000 / 24;
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
 
-    // Pre-create gradient for frequency bars
     const freqGradient = ctx.createLinearGradient(0, height, 0, 0);
     freqGradient.addColorStop(0, '#0284c7');
     freqGradient.addColorStop(1, '#00f0ff');
 
-    const draw = (timestamp: number) => {
-      animId = requestAnimationFrame(draw);
-
-      if (document.hidden || timestamp - lastDraw < minDrawInterval) {
-        return;
-      }
+    const drawFrame = (timestamp: number) => {
       lastDraw = timestamp;
-
       ctx.save();
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, width, height);
 
-      // Background
       ctx.fillStyle = '#080a0f';
       ctx.fillRect(0, 0, width, height);
 
-      // Center line
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(0, height / 2, width, 1);
 
@@ -106,12 +99,33 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
       ctx.restore();
     };
 
-    animId = requestAnimationFrame(draw);
+    const loop = (timestamp: number) => {
+      if (document.hidden) {
+        animId = null;
+        return;
+      }
+      if (timestamp - lastDraw >= minDrawInterval) {
+        drawFrame(timestamp);
+      }
+      animId = requestAnimationFrame(loop);
+    };
+
+    const onVisibility = () => {
+      if (!document.hidden && animId === null) {
+        animId = requestAnimationFrame(loop);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    animId = requestAnimationFrame(loop);
 
     return () => {
-      cancelAnimationFrame(animId);
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (animId !== null) {
+        cancelAnimationFrame(animId);
+      }
     };
-  }, [analyser, mode, width, height]);
+  }, [analyser, mode, width, height, active]);
 
   return (
     <canvas

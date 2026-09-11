@@ -58,6 +58,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
 
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [liveAnalyser, setLiveAnalyser] = useState<AnalyserNode | null>(null);
   const [duration, setDuration] = useState(0);
   const [metrics, setMetrics] = useState<RecorderMetrics>({ duration: 0, peakL: 0, peakR: 0, rmsL: 0, rmsR: 0 });
   const [visMode, setVisMode] = useState<'oscilloscope' | 'frequency'>('oscilloscope');
@@ -130,16 +131,18 @@ export const RecordModal: React.FC<RecordModalProps> = ({
       recorderRef.current.onMemoryLimit(() => {
         const rec = recorderRef.current;
         if (!rec) return;
-        const buffer = rec.stop();
-        setIsRecording(false);
-        setIsPaused(false);
-        if (buffer) {
-          setRecordedBuffer(buffer);
-          showToast(
-            `Recording stopped at ${buffer.duration.toFixed(0)}s — iPad/Safari memory limit reached to prevent a crash.`,
-            'warning'
-          );
-        }
+        void rec.stop().then((buffer) => {
+          setIsRecording(false);
+          setIsPaused(false);
+          setLiveAnalyser(null);
+          if (buffer) {
+            setRecordedBuffer(buffer);
+            showToast(
+              `Recording stopped at ${buffer.duration.toFixed(0)}s — iPad/Safari memory limit reached to prevent a crash.`,
+              'warning'
+            );
+          }
+        });
       });
       setTrackTitle(`Microphone Take ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`);
       setRecordedBuffer(null);
@@ -151,6 +154,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
       }
       setIsRecording(false);
       setIsPaused(false);
+      setLiveAnalyser(null);
       setDuration(0);
       setRecordedBuffer(null);
     }
@@ -161,6 +165,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
         recorderRef.current.cancel();
         recorderRef.current = null;
       }
+      setLiveAnalyser(null);
     };
   }, [isOpen, stopPreview, showToast]);
 
@@ -234,6 +239,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
         await recorderRef.current.start(gainBoost);
         setIsRecording(true);
         setIsPaused(false);
+        setLiveAnalyser(recorderRef.current.getAnalyser());
         setRecordedBuffer(null);
       }
     } catch (err) {
@@ -255,13 +261,15 @@ export const RecordModal: React.FC<RecordModalProps> = ({
 
   const handleStopRecord = () => {
     if (!recorderRef.current) return;
-    const buffer = recorderRef.current.stop();
-    setIsRecording(false);
-    setIsPaused(false);
-    if (buffer) {
-      setRecordedBuffer(buffer);
-      showToast(`Recording ready (${buffer.duration.toFixed(1)}s)`, 'success');
-    }
+    void recorderRef.current.stop().then((buffer) => {
+      setIsRecording(false);
+      setIsPaused(false);
+      setLiveAnalyser(null);
+      if (buffer) {
+        setRecordedBuffer(buffer);
+        showToast(`Recording ready (${buffer.duration.toFixed(1)}s)`, 'success');
+      }
+    });
   };
 
   const handleDiscard = () => {
@@ -271,6 +279,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
     }
     setIsRecording(false);
     setIsPaused(false);
+    setLiveAnalyser(null);
     setDuration(0);
     setRecordedBuffer(null);
   };
@@ -325,10 +334,11 @@ export const RecordModal: React.FC<RecordModalProps> = ({
         {/* Live Visualizer */}
         <div style={{ width: '100%', position: 'relative' }}>
           <LiveVisualizer
-            analyser={recorderRef.current?.getAnalyser() || null}
+            analyser={liveAnalyser}
             mode={visMode}
             width={460}
             height={110}
+            active={isRecording && !isPaused}
           />
           <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
             <button

@@ -33,8 +33,7 @@ export const VuMeter: React.FC<VuMeterProps> = ({ peakL, peakR, height = 12 }) =
               height: '100%',
               background: isClippingL
                 ? 'linear-gradient(90deg, #10b981 60%, #f59e0b 85%, #f43f5e 100%)'
-                : 'linear-gradient(90deg, #10b981 70%, #f59e0b 90%)',
-              transition: 'width 0.05s ease-out'
+                : 'linear-gradient(90deg, #10b981 70%, #f59e0b 90%)'
             }}
           />
         </div>
@@ -58,8 +57,7 @@ export const VuMeter: React.FC<VuMeterProps> = ({ peakL, peakR, height = 12 }) =
               height: '100%',
               background: isClippingR
                 ? 'linear-gradient(90deg, #10b981 60%, #f59e0b 85%, #f43f5e 100%)'
-                : 'linear-gradient(90deg, #10b981 70%, #f59e0b 90%)',
-              transition: 'width 0.05s ease-out'
+                : 'linear-gradient(90deg, #10b981 70%, #f59e0b 90%)'
             }}
           />
         </div>

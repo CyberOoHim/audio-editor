@@ -1,7 +1,8 @@
-const CACHE_NAME = 'audiocraft-studio-v2';
+const CACHE_NAME = 'audiocraft-studio-v3';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
+  './capture-worklet.js',
   './favicon.svg',
   './favicon-32x32.png',
   './favicon-16x16.png',

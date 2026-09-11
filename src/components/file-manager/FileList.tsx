@@ -27,7 +27,7 @@ export const FileList: React.FC<FileListProps> = ({
   const playRequestRef = useRef<string | null>(null);
   const bufferCacheRef = useRef<Map<string, AudioBuffer>>(new Map());
   const animFrameRef = useRef<number | null>(null);
-  const playbackDurationRef = useRef<number>(0);
+  const hardwareHoldRef = useRef(false);
 
   // Stop any active preview playback and progress animation
   const stopPreview = () => {
@@ -36,6 +36,11 @@ export const FileList: React.FC<FileListProps> = ({
     if (animFrameRef.current !== null) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
+    }
+
+    if (hardwareHoldRef.current) {
+      audioEngine.releaseHardware();
+      hardwareHoldRef.current = false;
     }
 
     if (currentSourceRef.current) {
@@ -100,15 +105,14 @@ export const FileList: React.FC<FileListProps> = ({
     setPlaybackProgress(0);
 
     try {
-      const ctx = audioEngine.getContext();
-      if (ctx.state === 'suspended') {
-        await ctx.resume();
-      }
+      audioEngine.holdHardware();
+      hardwareHoldRef.current = true;
 
-      // If main editor is playing, pause it so they don't clash
       if (audioEngine.getPlayState() === 'playing') {
         audioEngine.pause();
       }
+
+      const ctx = await audioEngine.resumeContext();
 
       // Check buffer cache or decode
       let buffer = bufferCacheRef.current.get(file.id);
@@ -136,7 +140,6 @@ export const FileList: React.FC<FileListProps> = ({
       currentGainRef.current = gain;
 
       const duration = buffer.duration;
-      playbackDurationRef.current = duration;
       const startCtxTime = ctx.currentTime;
 
       // Handle playback completion
@@ -146,16 +149,31 @@ export const FileList: React.FC<FileListProps> = ({
         }
       };
 
-      // Progress animation loop
-      const tick = () => {
-        if (playRequestRef.current === file.id && duration > 0) {
+      const barCount = 48;
+      let lastBar = -1;
+      let lastTick = 0;
+      const minTickInterval = 1000 / 12;
+
+      const tick = (timestamp: number) => {
+        if (playRequestRef.current !== file.id || duration <= 0) return;
+        if (document.hidden) {
+          animFrameRef.current = requestAnimationFrame(tick);
+          return;
+        }
+        if (timestamp - lastTick >= minTickInterval) {
+          lastTick = timestamp;
           const elapsed = ctx.currentTime - startCtxTime;
           const prog = Math.min(1, Math.max(0, elapsed / duration));
-          setPlaybackProgress(prog);
-
+          const bar = Math.min(barCount - 1, Math.floor(prog * barCount));
+          if (bar !== lastBar) {
+            lastBar = bar;
+            setPlaybackProgress(prog);
+          }
           if (prog < 1) {
             animFrameRef.current = requestAnimationFrame(tick);
           }
+        } else {
+          animFrameRef.current = requestAnimationFrame(tick);
         }
       };
 

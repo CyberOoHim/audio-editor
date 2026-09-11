@@ -14,19 +14,21 @@ export class AudioEngine {
   private currentBuffer: AudioBuffer | null = null;
   private sourceNode: AudioBufferSourceNode | null = null;
   private gainNode: GainNode | null = null;
-  private analyserNode: AnalyserNode | null = null;
   
   private playState: PlayState = 'idle';
   private startTime: number = 0;
   private startOffset: number = 0;
   private playbackRate: number = 1.0;
   private keepPitch: boolean = true;
+  private volume: number = 1.0;
   private stretchedCache: { source: AudioBuffer; rate: number; buffer: AudioBuffer } | null = null;
   private isLooping: boolean = false;
   private loopSelection: AudioSelection | null = null;
   
   public history: HistoryManager = new HistoryManager(25);
   private bufferEpoch: number = 0;
+  private playToken: number = 0;
+  private hardwareHoldCount: number = 0;
   
   private timeListeners: Set<TimeUpdateCallback> = new Set();
   private stateListeners: Set<StateChangeCallback> = new Set();
@@ -42,9 +44,13 @@ export class AudioEngine {
       document.addEventListener('visibilitychange', () => {
         this.isDocumentVisible = !document.hidden;
         if (this.isDocumentVisible) {
-          this.reportUserActivity();
           if (this.playState === 'playing') {
             this.startProgressTicker();
+          }
+        } else {
+          this.stopProgressTicker();
+          if (this.playState !== 'playing') {
+            this.suspendContextNow();
           }
         }
       });
@@ -53,28 +59,73 @@ export class AudioEngine {
 
   public reportUserActivity(): void {
     this.lastUserActivityTime = Date.now();
-    this.resetIdleHardwareTimer();
   }
 
-  private resetIdleHardwareTimer(): void {
+  /** Keep the DAC awake while a non-engine source (library preview) uses this context. */
+  public holdHardware(): void {
+    this.hardwareHoldCount++;
+    this.clearIdleSuspendTimer();
+  }
+
+  public releaseHardware(): void {
+    this.hardwareHoldCount = Math.max(0, this.hardwareHoldCount - 1);
+    if (this.hardwareHoldCount === 0 && this.playState !== 'playing') {
+      this.scheduleIdleSuspend();
+    }
+  }
+
+  /**
+   * Create the context if needed. Does not resume a suspended context — decode and
+   * buffer ops work while suspended; only play/preview should call resumeContext().
+   */
+  public getContext(): AudioContext {
+    if (!this.ctx || this.ctx.state === 'closed') {
+      const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      this.ctx = new AudioCtxClass();
+
+      this.gainNode = this.ctx.createGain();
+      this.gainNode.gain.value = this.volume;
+      this.gainNode.connect(this.ctx.destination);
+    }
+    return this.ctx;
+  }
+
+  public async resumeContext(): Promise<AudioContext> {
+    const ctx = this.getContext();
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+    return ctx;
+  }
+
+  private clearIdleSuspendTimer(): void {
     if (this.idleSuspendTimeout !== null) {
       clearTimeout(this.idleSuspendTimeout);
       this.idleSuspendTimeout = null;
     }
+  }
 
-    // If currently playing, do not suspend the audio hardware
-    if (this.playState === 'playing') return;
+  private scheduleIdleSuspend(delayMs: number = 1000): void {
+    this.clearIdleSuspendTimer();
+    if (this.playState === 'playing' || this.hardwareHoldCount > 0) return;
 
-    // When paused/idle, put audio hardware DAC to sleep after 20 seconds of inactivity
     this.idleSuspendTimeout = setTimeout(() => {
-      if (this.playState !== 'playing' && this.ctx && this.ctx.state === 'running') {
-        try {
-          this.ctx.suspend();
-        } catch {
-          // Context may already be suspended
-        }
+      this.idleSuspendTimeout = null;
+      if (this.playState !== 'playing' && this.hardwareHoldCount === 0) {
+        this.suspendContextNow();
       }
-    }, 20000);
+    }, delayMs);
+  }
+
+  private suspendContextNow(): void {
+    if (this.playState === 'playing' || this.hardwareHoldCount > 0) return;
+    if (this.ctx && this.ctx.state === 'running') {
+      try {
+        this.ctx.suspend();
+      } catch {
+        // Context may already be suspended
+      }
+    }
   }
 
   public static getInstance(): AudioEngine {
@@ -82,28 +133,6 @@ export class AudioEngine {
       AudioEngine.instance = new AudioEngine();
     }
     return AudioEngine.instance;
-  }
-
-  public getContext(): AudioContext {
-    if (!this.ctx || this.ctx.state === 'closed') {
-      const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.ctx = new AudioCtxClass();
-      
-      this.gainNode = this.ctx.createGain();
-      this.gainNode.gain.value = 1.0;
-
-      this.analyserNode = this.ctx.createAnalyser();
-      this.analyserNode.fftSize = 256;
-      this.analyserNode.smoothingTimeConstant = 0.8;
-
-      this.gainNode.connect(this.analyserNode);
-      this.analyserNode.connect(this.ctx.destination);
-    }
-    if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
-    }
-    this.resetIdleHardwareTimer();
-    return this.ctx;
   }
 
   public async loadBuffer(buffer: AudioBuffer, historyDescription?: string): Promise<void> {
@@ -251,6 +280,24 @@ export class AudioEngine {
 
   public play(fromTime?: number, selection?: AudioSelection): void {
     if (!this.currentBuffer) return;
+    const token = ++this.playToken;
+    const ctx = this.getContext();
+    this.clearIdleSuspendTimer();
+
+    const begin = () => {
+      if (token !== this.playToken || !this.currentBuffer) return;
+      this.startPlayback(fromTime, selection);
+    };
+
+    if (ctx.state === 'suspended') {
+      void ctx.resume().then(begin).catch(() => {});
+      return;
+    }
+    begin();
+  }
+
+  private startPlayback(fromTime?: number, selection?: AudioSelection): void {
+    if (!this.currentBuffer) return;
     const ctx = this.getContext();
 
     if (this.playState === 'playing') {
@@ -321,19 +368,23 @@ export class AudioEngine {
 
   public pause(): void {
     if (this.playState !== 'playing') return;
+    this.playToken++;
     this.startOffset = this.getCurrentTime();
     this.stopSource();
     this.setPlayState('paused');
     this.stopProgressTicker();
     this.notifyTimeListeners(this.startOffset);
+    this.scheduleIdleSuspend();
   }
 
   public stop(): void {
+    this.playToken++;
     this.stopSource();
     this.startOffset = 0;
     this.setPlayState('idle');
     this.stopProgressTicker();
     this.notifyTimeListeners(0);
+    this.scheduleIdleSuspend();
   }
 
   public seek(timeInSec: number): void {
@@ -350,8 +401,9 @@ export class AudioEngine {
   }
 
   public setVolume(val: number): void {
-    if (this.gainNode) {
-      this.gainNode.gain.setValueAtTime(Math.max(0, Math.min(2, val)), this.getContext().currentTime);
+    this.volume = Math.max(0, Math.min(2, val));
+    if (this.gainNode && this.ctx) {
+      this.gainNode.gain.setValueAtTime(this.volume, this.ctx.currentTime);
     }
   }
 
@@ -410,10 +462,6 @@ export class AudioEngine {
     return this.playState;
   }
 
-  public getAnalyser(): AnalyserNode | null {
-    return this.analyserNode;
-  }
-
   private stopSource(): void {
     if (this.sourceNode) {
       try {
@@ -438,9 +486,8 @@ export class AudioEngine {
 
     const tick = (timestamp: number) => {
       if (this.playState === 'playing') {
-        // If tab is in background / locked screen, completely pause UI ticker canvas updates
         if (!this.isDocumentVisible) {
-          this.animFrameId = requestAnimationFrame(tick);
+          this.animFrameId = null;
           return;
         }
 

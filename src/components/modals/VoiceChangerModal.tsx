@@ -158,7 +158,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   const startVisualizer = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
     const analyser = VoiceChangerEngine.getPreviewAnalyser();
@@ -166,32 +166,39 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
 
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
+    const grad = ctx.createLinearGradient(0, canvas.height, 0, 0);
+    grad.addColorStop(0, '#0284c7');
+    grad.addColorStop(0.6, '#00f0ff');
+    grad.addColorStop(1, '#10b981');
+    let lastDraw = 0;
+    const minDrawInterval = 1000 / 24;
 
-    const draw = () => {
+    const draw = (timestamp: number) => {
       if (!VoiceChangerEngine.isPreviewPlaying()) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         animationFrameRef.current = null;
         return;
       }
 
-      analyser.getByteFrequencyData(dataArray);
+      if (document.hidden) {
+        animationFrameRef.current = requestAnimationFrame(draw);
+        return;
+      }
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const barWidth = (canvas.width / bufferLength) * 2.2;
-      let x = 0;
+      if (timestamp - lastDraw >= minDrawInterval) {
+        lastDraw = timestamp;
+        analyser.getByteFrequencyData(dataArray);
 
-      for (let i = 0; i < bufferLength; i++) {
-        const barHeight = (dataArray[i] / 255) * canvas.height;
-
-        // Gradient styling
-        const grad = ctx.createLinearGradient(0, canvas.height, 0, 0);
-        grad.addColorStop(0, '#0284c7');
-        grad.addColorStop(0.6, '#00f0ff');
-        grad.addColorStop(1, '#10b981');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const barWidth = (canvas.width / bufferLength) * 2.2;
+        let x = 0;
 
         ctx.fillStyle = grad;
-        ctx.fillRect(x, canvas.height - barHeight, Math.max(1, barWidth - 1), barHeight);
-        x += barWidth;
+        for (let i = 0; i < bufferLength; i++) {
+          const barHeight = (dataArray[i] / 255) * canvas.height;
+          ctx.fillRect(x, canvas.height - barHeight, Math.max(1, barWidth - 1), barHeight);
+          x += barWidth;
+        }
       }
 
       animationFrameRef.current = requestAnimationFrame(draw);
@@ -486,8 +493,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
               style={{
                 width: '100%',
                 height: '100%',
-                display: 'block',
-                transform: 'translateZ(0)' // iPad GPU accelerated compositing
+                display: 'block'
               }}
             />
             {!isPlaying && (
