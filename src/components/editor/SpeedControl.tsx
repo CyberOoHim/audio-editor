@@ -269,19 +269,38 @@ export const SpeedControl: React.FC<SpeedControlProps> = React.memo(({
           </div>
 
           {/* Apply Speed Transform Button (Render / Bake into Audio) */}
-          {onApplySpeedTransform && hasBuffer && isCustomRate && (
+          {onApplySpeedTransform && (
             <div className="speed-apply-wrap">
               <button
+                id="speed-apply-transform-btn"
                 type="button"
-                className="speed-apply-btn"
+                className={`speed-apply-btn ${!hasBuffer || !isCustomRate ? 'disabled' : ''}`}
+                disabled={!hasBuffer || !isCustomRate}
                 onClick={() => {
-                  onApplySpeedTransform(roundRate, keepPitch);
-                  setIsOpen(false);
+                  if (hasBuffer && isCustomRate) {
+                    onApplySpeedTransform(roundRate, keepPitch);
+                    setIsOpen(false);
+                  }
                 }}
-                title={`Apply ${roundRate}x speed transform permanently to ${hasSelection ? 'selection' : 'entire track'} (${keepPitch ? 'keep pitch' : 'shift pitch'})`}
+                style={{
+                  opacity: !hasBuffer || !isCustomRate ? 0.45 : 1,
+                  cursor: !hasBuffer || !isCustomRate ? 'not-allowed' : 'pointer',
+                  filter: !hasBuffer || !isCustomRate ? 'grayscale(0.5)' : 'none'
+                }}
+                title={
+                  !hasBuffer
+                    ? 'Load an audio track first to apply transform'
+                    : !isCustomRate
+                    ? 'Change speed from 1.0x (e.g. 1.25x or 0.75x) to apply permanent transform'
+                    : `Apply ${roundRate.toFixed(2)}x speed transform permanently to ${hasSelection ? 'selection' : 'entire track'} (${keepPitch ? 'keep pitch' : 'shift pitch'})`
+                }
               >
                 <Zap size={12} />
-                <span>Apply Transform ({roundRate}x)</span>
+                <span>
+                  {!isCustomRate
+                    ? 'Apply Transform (Change speed first)'
+                    : `Apply Transform (${roundRate.toFixed(2)}x)`}
+                </span>
               </button>
             </div>
           )}
