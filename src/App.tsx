@@ -298,6 +298,20 @@ export function AudioStudioApp() {
       setCanRedo(audioEngine.history.canRedo());
       setUndoDescription(audioEngine.history.getUndoEntry()?.description || '');
       setRedoDescription(audioEngine.history.getRedoEntry()?.description || '');
+
+      // Safely clamp or reset selection if the buffer duration changed from an undo/redo step
+      if (buffer) {
+        setSelection((prev) => {
+          if (!prev) return null;
+          if (prev.start >= buffer.duration) return null;
+          if (prev.end > buffer.duration) {
+            return { start: prev.start, end: buffer.duration };
+          }
+          return prev;
+        });
+      } else {
+        setSelection(null);
+      }
     });
 
     return () => {
@@ -697,20 +711,24 @@ export function AudioStudioApp() {
   const handleApplyGain = useCallback((gainDb: number, target: 'selection' | 'all') => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
-    const startSec = target === 'selection' && selection ? selection.start : undefined;
-    const endSec = target === 'selection' && selection ? selection.end : undefined;
+    const isSelection = target === 'selection' && selection && selection.end > selection.start;
+    const startSec = isSelection ? selection.start : undefined;
+    const endSec = isSelection ? selection.end : undefined;
     const newBuffer = BufferUtils.applyGain(ctx, currentBuffer, gainDb, startSec, endSec);
-    audioEngine.setBufferDirectly(newBuffer, `Gain ${gainDb > 0 ? '+' : ''}${gainDb}dB`);
+    const scopeLabel = isSelection ? ` (${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s)` : '';
+    audioEngine.setBufferDirectly(newBuffer, `Gain ${gainDb > 0 ? '+' : ''}${gainDb}dB${scopeLabel}`);
     showToast(`Gain applied (${gainDb > 0 ? '+' : ''}${gainDb} dB)`, 'success');
   }, [currentBuffer, selection, showToast]);
 
   const handleApplyNormalize = useCallback((targetDb: number = -0.1, scope: 'all' | 'selection' = 'all') => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
-    const startSec = scope === 'selection' && selection ? selection.start : undefined;
-    const endSec = scope === 'selection' && selection ? selection.end : undefined;
+    const isSelection = scope === 'selection' && selection && selection.end > selection.start;
+    const startSec = isSelection ? selection.start : undefined;
+    const endSec = isSelection ? selection.end : undefined;
     const newBuffer = BufferUtils.normalizeBuffer(ctx, currentBuffer, targetDb, startSec, endSec);
-    const label = `Normalize to ${targetDb > 0 ? `+${targetDb}` : targetDb}dBFS (${scope})`;
+    const scopeLabel = isSelection ? ` (${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s)` : ' (All)';
+    const label = `Normalize to ${targetDb > 0 ? `+${targetDb}` : targetDb}dBFS${scopeLabel}`;
     audioEngine.setBufferDirectly(newBuffer, label);
     showToast(`Normalized to ${targetDb} dBFS`, 'success');
   }, [currentBuffer, selection, showToast]);
@@ -778,21 +796,29 @@ export function AudioStudioApp() {
   const handleReverse = useCallback(() => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
-    const startSec = selection ? selection.start : undefined;
-    const endSec = selection ? selection.end : undefined;
+    const isSelection = selection && selection.end > selection.start;
+    const startSec = isSelection ? selection.start : undefined;
+    const endSec = isSelection ? selection.end : undefined;
     const newBuffer = BufferUtils.reverseBuffer(ctx, currentBuffer, startSec, endSec);
-    audioEngine.setBufferDirectly(newBuffer, 'Reverse audio');
-    showToast('Audio reversed', 'success');
+    const desc = isSelection
+      ? `Reverse ${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s`
+      : 'Reverse entire track';
+    audioEngine.setBufferDirectly(newBuffer, desc);
+    showToast(isSelection ? 'Selection reversed' : 'Audio reversed', 'success');
   }, [currentBuffer, selection, showToast]);
 
   const handleInvert = useCallback(() => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
-    const startSec = selection ? selection.start : undefined;
-    const endSec = selection ? selection.end : undefined;
+    const isSelection = selection && selection.end > selection.start;
+    const startSec = isSelection ? selection.start : undefined;
+    const endSec = isSelection ? selection.end : undefined;
     const newBuffer = BufferUtils.invertPhase(ctx, currentBuffer, startSec, endSec);
-    audioEngine.setBufferDirectly(newBuffer, 'Invert Phase');
-    showToast('Phase inverted', 'success');
+    const desc = isSelection
+      ? `Invert Phase ${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s`
+      : 'Invert Phase';
+    audioEngine.setBufferDirectly(newBuffer, desc);
+    showToast(isSelection ? 'Selection phase inverted' : 'Phase inverted', 'success');
   }, [currentBuffer, selection, showToast]);
 
   const handleSplit = useCallback(async () => {
@@ -845,7 +871,14 @@ export function AudioStudioApp() {
   ) => {
     if (!currentBuffer) return;
     const newBuffer = await EffectsChain.renderEffects(currentBuffer, eq, filters, comp, speed, keepPitch);
-    audioEngine.setBufferDirectly(newBuffer, `Applied EQ & DSP Effects (${speed}x speed, ${keepPitch ? 'Keep pitch' : 'Resample'})`);
+    const effectParts: string[] = [];
+    if (eq.enabled && (eq.lowGain !== 0 || eq.midGain !== 0 || eq.highGain !== 0)) effectParts.push('EQ');
+    if (filters.highpassEnabled) effectParts.push('Highpass');
+    if (filters.lowpassEnabled) effectParts.push('Lowpass');
+    if (comp.enabled) effectParts.push('Compressor');
+    if (Math.abs(speed - 1.0) >= 0.005) effectParts.push(`${speed}x speed (${keepPitch ? 'Keep pitch' : 'Resample'})`);
+    const label = effectParts.length > 0 ? `Effects (${effectParts.join(', ')})` : 'Applied DSP Effects';
+    audioEngine.setBufferDirectly(newBuffer, label);
     showToast('Effects applied', 'success');
   }, [currentBuffer, showToast]);
 
@@ -1440,8 +1473,14 @@ export function AudioStudioApp() {
           <ToolPalette
             hasSelection={Boolean(selection && selection.end > selection.start)}
             hasBuffer={Boolean(currentBuffer)}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            undoDescription={undoDescription}
+            redoDescription={redoDescription}
             fadeInDuration={fadeInDuration}
             fadeOutDuration={fadeOutDuration}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
             onTrim={handleTrim}
             onCut={handleCut}
             onSilence={handleSilence}

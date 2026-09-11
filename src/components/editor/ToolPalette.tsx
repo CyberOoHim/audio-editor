@@ -1,5 +1,7 @@
 import React from 'react';
 import {
+  Undo2,
+  Redo2,
   Crop,
   Scissors,
   VolumeX,
@@ -22,8 +24,14 @@ import type { FadeType } from '../../types/audio';
 export interface ToolPaletteProps {
   hasSelection: boolean;
   hasBuffer: boolean;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  undoDescription?: string;
+  redoDescription?: string;
   fadeInDuration: number;
   fadeOutDuration: number;
+  onUndo?: () => void;
+  onRedo?: () => void;
   onTrim: () => void;
   onCut: () => void;
   onSilence: () => void;
@@ -45,8 +53,14 @@ export interface ToolPaletteProps {
 export const ToolPalette: React.FC<ToolPaletteProps> = React.memo(({
   hasSelection,
   hasBuffer,
+  canUndo = false,
+  canRedo = false,
+  undoDescription = '',
+  redoDescription = '',
   fadeInDuration,
   fadeOutDuration,
+  onUndo,
+  onRedo,
   onTrim,
   onCut,
   onSilence,
@@ -68,6 +82,26 @@ export const ToolPalette: React.FC<ToolPaletteProps> = React.memo(({
     <div className="editor-toolbar">
       {/* Edit Group */}
       <div className="tool-group">
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={onUndo}
+          disabled={!canUndo}
+          title={undoDescription ? `Undo: ${undoDescription} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}
+          aria-label="Undo last action"
+        >
+          <Undo2 size={14} /> Undo
+        </button>
+
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={onRedo}
+          disabled={!canRedo}
+          title={redoDescription ? `Redo: ${redoDescription} (Ctrl+Y)` : 'Redo (Ctrl+Y)'}
+          aria-label="Redo action"
+        >
+          <Redo2 size={14} /> Redo
+        </button>
+
         <button
           className="btn btn-secondary btn-sm"
           onClick={onTrim}
