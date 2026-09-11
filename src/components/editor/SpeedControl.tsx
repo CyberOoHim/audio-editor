@@ -239,33 +239,38 @@ export const SpeedControl: React.FC<SpeedControlProps> = React.memo(({
             })}
           </div>
 
-          {/* Keep Pitch Option (Default: Keep Pitch = true) */}
-          <div className="speed-pitch-control-row">
-            <label
-              className="speed-pitch-label"
-              title="Keep original musical pitch (time stretch) or let pitch shift with speed"
+          {/* Keep Pitch Dedicated Button (Default: Keep Pitch = true) */}
+          <div className="speed-pitch-control-row" style={{ padding: 0, border: 'none', background: 'transparent' }}>
+            <button
+              type="button"
+              id="speed-keep-pitch-toggle-btn"
+              className={`speed-keep-pitch-toggle-btn ${keepPitch ? 'active' : ''}`}
+              onClick={() => onKeepPitchChange?.(!keepPitch)}
+              role="switch"
+              aria-checked={keepPitch}
+              title={
+                keepPitch
+                  ? 'Keep Pitch is ON (Time stretch). Click to switch to Resample mode (pitch shifts with speed).'
+                  : 'Keep Pitch is OFF (Resample mode). Click to preserve original pitch.'
+              }
             >
-              <input
-                type="checkbox"
-                className="speed-pitch-checkbox"
-                checked={keepPitch}
-                onChange={(e) => onKeepPitchChange?.(e.target.checked)}
-              />
-              <div className="speed-pitch-text-wrap">
-                <div className="speed-pitch-title-row">
-                  <Music2 size={11} style={{ color: keepPitch ? 'var(--accent-cyan)' : 'var(--text-muted)' }} />
-                  <span className="speed-pitch-title">Keep pitch</span>
-                  <span className={`speed-pitch-badge ${keepPitch ? 'active' : ''}`}>
-                    {keepPitch ? 'ON' : 'OFF'}
+              <div className="speed-pitch-btn-left">
+                <Music2 size={13} style={{ color: keepPitch ? 'var(--accent-cyan)' : 'var(--text-muted)' }} />
+                <div className="speed-pitch-text-wrap">
+                  <div className="speed-pitch-title-row">
+                    <span className="speed-pitch-title">Keep pitch</span>
+                  </div>
+                  <span className="speed-pitch-desc">
+                    {keepPitch
+                      ? 'Time stretch (pitch preserved)'
+                      : 'Resample / Tape mode (pitch shifts)'}
                   </span>
                 </div>
-                <span className="speed-pitch-desc">
-                  {keepPitch
-                    ? 'Time stretch (pitch preserved)'
-                    : 'Resample / Tape mode (pitch shifts)'}
-                </span>
               </div>
-            </label>
+              <span className={`speed-pitch-pill ${keepPitch ? 'active' : ''}`}>
+                {keepPitch ? 'ON' : 'OFF'}
+              </span>
+            </button>
           </div>
 
           {/* Apply Speed Transform Button (Render / Bake into Audio) */}

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Sliders, Sparkles, Music2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Sliders, Sparkles, Music2, RotateCcw, Undo2, Redo2, Zap } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { Knob } from '../common/Knob';
 import { Slider } from '../common/Slider';
@@ -15,12 +15,34 @@ export interface EffectsModalProps {
     speed: number,
     keepPitch: boolean
   ) => Promise<void>;
+  speed?: number;
+  keepPitch?: boolean;
+  onSpeedChange?: (rate: number, showToastFeedback?: boolean) => void;
+  onKeepPitchChange?: (keepPitch: boolean) => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  undoActionName?: string;
+  redoActionName?: string;
 }
+
+const SPEED_PRESETS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
 export const EffectsModal: React.FC<EffectsModalProps> = ({
   isOpen,
   onClose,
-  onApplyEffects
+  onApplyEffects,
+  speed: propSpeed = 1.0,
+  keepPitch: propKeepPitch = true,
+  onSpeedChange,
+  onKeepPitchChange,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
+  undoActionName = '',
+  redoActionName = ''
 }) => {
   const [eq, setEq] = useState<EQSettings>({
     enabled: true,
@@ -48,14 +70,68 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
     release: 0.25
   });
 
-  const [speed, setSpeed] = useState<number>(1.0);
-  const [keepPitch, setKeepPitch] = useState<boolean>(true);
+  const [speed, setSpeed] = useState<number>(propSpeed);
+  const [keepPitch, setKeepPitch] = useState<boolean>(propKeepPitch);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Sync state with incoming props
+  useEffect(() => {
+    if (propSpeed !== undefined) {
+      setSpeed(propSpeed);
+    }
+  }, [propSpeed]);
+
+  useEffect(() => {
+    if (propKeepPitch !== undefined) {
+      setKeepPitch(propKeepPitch);
+    }
+  }, [propKeepPitch]);
+
+  // Global hotkey support inside modal (Ctrl+Z / Cmd+Z for undo, Ctrl+Y / Cmd+Shift+Z for redo)
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (cmdOrCtrl && !e.altKey) {
+        if (e.key === 'z' || e.key === 'Z') {
+          e.preventDefault();
+          if (e.shiftKey) {
+            if (canRedo) onRedo?.();
+          } else {
+            if (canUndo) onUndo?.();
+          }
+        } else if (e.key === 'y' || e.key === 'Y') {
+          e.preventDefault();
+          if (canRedo) onRedo?.();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, canUndo, canRedo, onUndo, onRedo]);
+
+  const handleSpeedChange = useCallback((val: number, showToast = false) => {
+    const clamped = Math.max(0.25, Math.min(2.0, Math.round(val * 100) / 100));
+    setSpeed(clamped);
+    onSpeedChange?.(clamped, showToast);
+  }, [onSpeedChange]);
+
+  const handleKeepPitchChange = useCallback((nextKeep: boolean) => {
+    setKeepPitch(nextKeep);
+    onKeepPitchChange?.(nextKeep);
+  }, [onKeepPitchChange]);
 
   const handleApply = async () => {
     setIsProcessing(true);
     try {
       await onApplyEffects(eq, filters, comp, speed, keepPitch);
+      if (Math.abs(speed - 1.0) >= 0.005) {
+        onSpeedChange?.(1.0);
+      }
       onClose();
     } finally {
       setIsProcessing(false);
@@ -88,6 +164,8 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
     });
     setSpeed(1.0);
     setKeepPitch(true);
+    onSpeedChange?.(1.0, true);
+    onKeepPitchChange?.(true);
   };
 
   return (
@@ -97,25 +175,102 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
       title="Studio DSP & Equalizer Suite"
       maxWidth="560px"
       footer={
-        <>
-          <button className="btn btn-ghost btn-sm" onClick={handleReset}>
-            Reset Defaults
-          </button>
-          <button className="btn btn-secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={handleApply}
-            disabled={isProcessing}
-          >
-            <Sparkles size={14} />
-            {isProcessing ? 'Applying...' : 'Apply Effects'}
-          </button>
-        </>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => onUndo?.()}
+              disabled={isProcessing || !canUndo}
+              title={undoActionName ? `Undo: ${undoActionName} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            >
+              <Undo2 size={13} />
+              <span>Undo</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => onRedo?.()}
+              disabled={isProcessing || !canRedo}
+              title={redoActionName ? `Redo: ${redoActionName} (Ctrl+Y)` : 'Redo (Ctrl+Y)'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            >
+              <Redo2 size={13} />
+              <span>Redo</span>
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={handleReset} disabled={isProcessing}>
+              Reset Defaults
+            </button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+            <button className="btn btn-secondary" onClick={onClose} disabled={isProcessing}>
+              Cancel
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={handleApply}
+              disabled={isProcessing}
+            >
+              <Sparkles size={14} />
+              {isProcessing ? 'Applying...' : 'Apply Effects'}
+            </button>
+          </div>
+        </div>
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* In-Deck Undo / Redo Status Strip */}
+        {(canUndo || canRedo || undoActionName) && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '7px 12px',
+              backgroundColor: 'rgba(56, 189, 248, 0.08)',
+              border: '1px solid rgba(56, 189, 248, 0.25)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: 'calc(11.5px * var(--ui-font-scale, 1))',
+              color: 'var(--text-primary)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, overflow: 'hidden' }}>
+              <Zap size={13} color="var(--accent-cyan, #06b6d4)" style={{ flexShrink: 0 }} />
+              <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                Active in buffer: <strong>{undoActionName || 'Original Audio'}</strong>
+              </span>
+              {redoActionName && (
+                <span style={{ color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--ui-font-scale, 1))' }}>
+                  (Redo: {redoActionName})
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                style={{ height: 24, padding: '0 8px', fontSize: 'calc(11px * var(--ui-font-scale, 1))', color: 'var(--accent-cyan, #06b6d4)' }}
+                onClick={() => onUndo?.()}
+                disabled={isProcessing || !canUndo}
+                title={undoActionName ? `Undo: ${undoActionName} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}
+              >
+                <Undo2 size={12} /> Undo
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                style={{ height: 24, padding: '0 8px', fontSize: 'calc(11px * var(--ui-font-scale, 1))', color: 'var(--accent-cyan, #06b6d4)' }}
+                onClick={() => onRedo?.()}
+                disabled={isProcessing || !canRedo}
+                title={redoActionName ? `Redo: ${redoActionName} (Ctrl+Y)` : 'Redo (Ctrl+Y)'}
+              >
+                <Redo2 size={12} /> Redo
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Processing Limit & Engine Hint */}
         <div
           style={{
@@ -296,52 +451,75 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
               max={2.0}
               step={0.05}
               unit="x"
-              onChange={(val) => setSpeed(val)}
+              onChange={(val) => handleSpeedChange(val)}
             />
 
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '8px 10px',
-                background: 'var(--bg-input)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-sm)'
-              }}
-            >
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  cursor: 'pointer',
-                  fontSize: 'calc(11.5px * var(--ui-font-scale, 1))',
-                  fontWeight: 600,
-                  color: 'var(--text-primary)',
-                  userSelect: 'none'
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={keepPitch}
-                  onChange={(e) => setKeepPitch(e.target.checked)}
-                  style={{ accentColor: 'var(--accent-cyan)', width: 14, height: 14, cursor: 'pointer' }}
-                />
-                <Music2 size={13} style={{ color: keepPitch ? 'var(--accent-cyan)' : 'var(--text-muted)' }} />
-                <span>Keep Pitch (Time Stretch)</span>
-              </label>
-
-              <span
-                style={{
-                  fontSize: 'calc(10px * var(--ui-font-scale, 1))',
-                  color: keepPitch ? 'var(--accent-cyan)' : 'var(--text-muted)',
-                  fontWeight: 500
-                }}
-              >
-                {keepPitch ? 'Pitch Preserved' : 'Pitch Shifts (Resample)'}
-              </span>
+            {/* Quick Speed Presets */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 'calc(10.5px * var(--ui-font-scale, 1))', color: 'var(--text-muted)', fontWeight: 600 }}>Presets:</span>
+              {SPEED_PRESETS.map((preset) => {
+                const isActive = Math.abs(preset - speed) < 0.02;
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    className={`speed-preset-chip mono ${isActive ? 'active' : ''}`}
+                    onClick={() => handleSpeedChange(preset, true)}
+                    title={`Set speed to ${preset}x`}
+                    style={{
+                      height: 24,
+                      padding: '0 8px',
+                      fontSize: 'calc(11px * var(--ui-font-scale, 1))'
+                    }}
+                  >
+                    {preset === 1.0 ? '1x' : preset === 2.0 ? '2x' : `${preset}x`}
+                  </button>
+                );
+              })}
+              {Math.abs(speed - 1.0) >= 0.02 && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => handleSpeedChange(1.0, true)}
+                  title="Reset speed to 1.0x"
+                  style={{ height: 24, padding: '0 6px', fontSize: 'calc(10.5px * var(--ui-font-scale, 1))' }}
+                >
+                  <RotateCcw size={11} /> Reset 1x
+                </button>
+              )}
             </div>
+
+            {/* Dedicated Keep Pitch Button */}
+            <button
+              type="button"
+              id="effects-keep-pitch-toggle-btn"
+              className={`speed-keep-pitch-toggle-btn ${keepPitch ? 'active' : ''}`}
+              onClick={() => handleKeepPitchChange(!keepPitch)}
+              role="switch"
+              aria-checked={keepPitch}
+              title={
+                keepPitch
+                  ? 'Keep Pitch is ON (Time stretch). Click to switch to Resample mode (pitch shifts with speed).'
+                  : 'Keep Pitch is OFF (Resample mode). Click to preserve musical pitch.'
+              }
+            >
+              <div className="speed-pitch-btn-left">
+                <Music2 size={14} style={{ color: keepPitch ? 'var(--accent-cyan)' : 'var(--text-muted)' }} />
+                <div className="speed-pitch-text-wrap">
+                  <div className="speed-pitch-title-row">
+                    <span className="speed-pitch-title">Keep pitch</span>
+                  </div>
+                  <span className="speed-pitch-desc">
+                    {keepPitch
+                      ? 'Time stretch (pitch preserved)'
+                      : 'Resample / Tape mode (pitch shifts)'}
+                  </span>
+                </div>
+              </div>
+              <span className={`speed-pitch-pill ${keepPitch ? 'active' : ''}`}>
+                {keepPitch ? 'ON' : 'OFF'}
+              </span>
+            </button>
           </div>
         </div>
       </div>

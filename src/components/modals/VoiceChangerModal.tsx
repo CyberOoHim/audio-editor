@@ -538,8 +538,8 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
           </div>
         </div>
 
-        {/* Global Undo State Pill if active buffer has a Voice FX entry */}
-        {undoActionName && undoActionName.includes('Voice FX') && (
+        {/* Global Undo & Redo State Strip */}
+        {(canUndo || canRedo || undoActionName) && (
           <div
             style={{
               display: 'flex',
@@ -553,26 +553,47 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
               color: 'var(--text-primary)'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <Zap size={13} color="var(--accent-cyan, #06b6d4)" />
-              <span>Active in buffer: <strong>{undoActionName}</strong></span>
-              <span style={{ color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--ui-font-scale, 1))' }}>
-                (managed with global redo/undo)
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, overflow: 'hidden' }}>
+              <Zap size={13} color="var(--accent-cyan, #06b6d4)" style={{ flexShrink: 0 }} />
+              <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                Active in buffer: <strong>{undoActionName || 'Original Track'}</strong>
               </span>
+              {redoActionName && (
+                <span style={{ color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--ui-font-scale, 1))' }}>
+                  (Redo: {redoActionName})
+                </span>
+              )}
             </div>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              style={{ height: 24, padding: '0 8px', fontSize: 'calc(11px * var(--ui-font-scale, 1))', color: 'var(--accent-cyan, #06b6d4)' }}
-              onClick={() => {
-                VoiceChangerEngine.stopPreview();
-                setIsPlaying(false);
-                onUndo?.();
-              }}
-              title="Undo this voice transformation (Ctrl+Z)"
-            >
-              <Undo2 size={12} /> Undo FX
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                style={{ height: 24, padding: '0 8px', fontSize: 'calc(11px * var(--ui-font-scale, 1))', color: 'var(--accent-cyan, #06b6d4)' }}
+                onClick={() => {
+                  VoiceChangerEngine.stopPreview();
+                  setIsPlaying(false);
+                  onUndo?.();
+                }}
+                disabled={isProcessing || !canUndo}
+                title={undoActionName ? `Undo: ${undoActionName} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}
+              >
+                <Undo2 size={12} /> Undo
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                style={{ height: 24, padding: '0 8px', fontSize: 'calc(11px * var(--ui-font-scale, 1))', color: 'var(--accent-cyan, #06b6d4)' }}
+                onClick={() => {
+                  VoiceChangerEngine.stopPreview();
+                  setIsPlaying(false);
+                  onRedo?.();
+                }}
+                disabled={isProcessing || !canRedo}
+                title={redoActionName ? `Redo: ${redoActionName} (Ctrl+Y)` : 'Redo (Ctrl+Y)'}
+              >
+                <Redo2 size={12} /> Redo
+              </button>
+            </div>
           </div>
         )}
 

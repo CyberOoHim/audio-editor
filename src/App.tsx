@@ -1751,6 +1751,16 @@ export function AudioStudioApp() {
         isOpen={effectsModalOpen}
         onClose={handleCloseEffectsModal}
         onApplyEffects={handleApplyEffects}
+        speed={playbackRate}
+        keepPitch={keepPitch}
+        onSpeedChange={handlePlaybackRateChange}
+        onKeepPitchChange={handleKeepPitchChange}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        undoActionName={undoDescription}
+        redoActionName={redoDescription}
       />
 
       <VoiceChangerModal
