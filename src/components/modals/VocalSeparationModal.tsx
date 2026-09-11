@@ -36,7 +36,7 @@ export interface VocalSeparationModalProps {
   currentFileName: string;
   selection: AudioSelection | null;
   currentTime: number;
-  onApplyStem: (resultBuffer: AudioBuffer, actionDescription: string) => void;
+  onApplyStem: (resultBuffer: AudioBuffer, actionDescription: string, clearSelection?: boolean) => void;
   onSaveStemsToLibrary: (
     vocalBuffer: AudioBuffer,
     instrumentalBuffer: AudioBuffer,
@@ -75,9 +75,7 @@ export const VocalSeparationModal: React.FC<VocalSeparationModalProps> = ({
   const [debleedStrength, setDebleedStrength] = useState<number>(0.3);
   const [vocalRange, setVocalRange] = useState<VocalRangePreset>('all');
   const [preserveStereoAmbience, setPreserveStereoAmbience] = useState<boolean>(true);
-  const [scope, setScope] = useState<'all' | 'selection'>(() => {
-    return selection && selection.end > selection.start ? 'selection' : 'all';
-  });
+  const [scope, setScope] = useState<'all' | 'selection'>('all');
 
   // Hardware capabilities state
   const [gpuInfo, setGpuInfo] = useState<GpuCapabilities | null>(null);
@@ -100,20 +98,9 @@ export const VocalSeparationModal: React.FC<VocalSeparationModalProps> = ({
   const previewCtxRef = useRef<AudioContext | null>(null);
   const previewStartTimeRef = useRef<number>(0);
   const previewTimerRef = useRef<number | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const hasSelection = Boolean(selection && selection.end > selection.start);
-
-  // Query GPU capabilities on open
-  useEffect(() => {
-    if (isOpen) {
-      void VocalSeparationEngine.getGpuCapabilities().then((info) => {
-        setGpuInfo(info);
-      });
-      setScope(hasSelection ? 'selection' : 'all');
-    } else {
-      stopAudition();
-    }
-  }, [isOpen, hasSelection]);
 
   // Clean up preview audio on unmount or close
   const stopAudition = useCallback(() => {
@@ -133,105 +120,39 @@ export const VocalSeparationModal: React.FC<VocalSeparationModalProps> = ({
     setIsPlaying(false);
   }, []);
 
+  // Query GPU capabilities on open
+  useEffect(() => {
+    if (isOpen) {
+      void VocalSeparationEngine.getGpuCapabilities().then((info) => {
+        setGpuInfo(info);
+      });
+      // Stem separation defaults to 'all' (Full Track) so the whole song is processed
+      // unless the user deliberately toggles to 'selection'.
+      setScope('all');
+    } else {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      stopAudition();
+    }
+  }, [isOpen, hasSelection, stopAudition]);
+
   useEffect(() => {
     return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
       stopAudition();
-      if (previewCtxRef.current) {
+      if (previewCtxRef.current && previewCtxRef.current.state !== 'closed') {
         void previewCtxRef.current.close();
       }
     };
   }, [stopAudition]);
 
-  // Generate audition preview slice when settings change or user requests audition
-  const generateAudition = useCallback(async () => {
-    if (!currentBuffer) return;
-    setIsPreviewLoading(true);
-
-    try {
-      if (!previewCtxRef.current || previewCtxRef.current.state === 'closed') {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        previewCtxRef.current = new AudioCtx();
-      }
-      const ctx = previewCtxRef.current;
-      if (ctx.state === 'suspended') {
-        await ctx.resume();
-      }
-
-      const settings: VocalSeparationSettings = {
-        mode,
-        vocalBalance: mode === 'vocals-only' ? 1.0 : mode === 'music-only' ? 0.0 : vocalBalance,
-        vocalSensitivity,
-        stereoCenterWeight,
-        debleedStrength,
-        vocalRange,
-        preserveStereoAmbience,
-        scope
-      };
-
-      const center = hasSelection && selection ? (selection.start + selection.end) / 2 : currentTime;
-      const slice = await VocalSeparationEngine.generateAuditionSlice(ctx, currentBuffer, settings, center, 6.0);
-
-      setPreviewBuffer(slice.previewBuffer);
-      setPreviewVocal(slice.vocalSlice);
-      setPreviewInst(slice.instrumentalSlice);
-      setPreviewOrig(slice.originalSlice);
-    } catch (err) {
-      console.warn('Audition preview generation failed:', err);
-    } finally {
-      setIsPreviewLoading(false);
-    }
-  }, [
-    currentBuffer,
-    mode,
-    vocalBalance,
-    vocalSensitivity,
-    stereoCenterWeight,
-    debleedStrength,
-    vocalRange,
-    preserveStereoAmbience,
-    scope,
-    hasSelection,
-    selection,
-    currentTime
-  ]);
-
-  // Auto-generate audition on first load if buffer exists
-  useEffect(() => {
-    if (isOpen && currentBuffer && !previewBuffer && !isPreviewLoading) {
-      void generateAudition();
-    }
-  }, [isOpen, currentBuffer, previewBuffer, isPreviewLoading, generateAudition]);
-
-  // Toggle Play / Pause preview
-  const handleTogglePlay = () => {
-    if (isPlaying) {
-      stopAudition();
-      return;
-    }
-
-    const activeBuf = isBypassed
-      ? previewOrig
-      : mode === 'vocals-only'
-      ? previewVocal
-      : mode === 'music-only'
-      ? previewInst
-      : previewBuffer;
-
-    if (!activeBuf) {
-      void generateAudition().then(() => {
-        // Will play next click
-      });
-      return;
-    }
-
-    if (!previewCtxRef.current || previewCtxRef.current.state === 'closed') {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      previewCtxRef.current = new AudioCtx();
-    }
-    const ctx = previewCtxRef.current;
-    if (ctx.state === 'suspended') {
-      void ctx.resume();
-    }
+  const startPlaybackWithBuffer = useCallback((ctx: AudioContext, activeBuf: AudioBuffer) => {
+    stopAudition();
 
     const source = ctx.createBufferSource();
     source.buffer = activeBuf;
@@ -257,36 +178,121 @@ export const VocalSeparationModal: React.FC<VocalSeparationModalProps> = ({
         previewTimerRef.current = null;
       }
     };
+  }, [stopAudition]);
+
+  // Generate audition preview slice when user requests audition or starts playback
+  const generateAudition = useCallback(async (autoPlayAfter: boolean = false) => {
+    if (!currentBuffer) return;
+    setIsPreviewLoading(true);
+
+    try {
+      if (!previewCtxRef.current || previewCtxRef.current.state === 'closed') {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        previewCtxRef.current = new AudioCtx();
+      }
+      const ctx = previewCtxRef.current;
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
+      const settings: VocalSeparationSettings = {
+        mode,
+        vocalBalance: mode === 'vocals-only' ? 1.0 : mode === 'music-only' ? 0.0 : vocalBalance,
+        vocalSensitivity,
+        stereoCenterWeight,
+        debleedStrength,
+        vocalRange,
+        preserveStereoAmbience,
+        scope
+      };
+
+      const center = hasSelection && selection ? (selection.start + selection.end) / 2 : currentTime;
+      const slice = await VocalSeparationEngine.generateAuditionSlice(ctx, currentBuffer, settings, center, 4.0);
+
+      setPreviewBuffer(slice.previewBuffer);
+      setPreviewVocal(slice.vocalSlice);
+      setPreviewInst(slice.instrumentalSlice);
+      setPreviewOrig(slice.originalSlice);
+
+      if (autoPlayAfter) {
+        const targetBuf = isBypassed
+          ? slice.originalSlice
+          : mode === 'vocals-only'
+          ? slice.vocalSlice
+          : mode === 'music-only'
+          ? slice.instrumentalSlice
+          : slice.previewBuffer;
+        startPlaybackWithBuffer(ctx, targetBuf);
+      }
+    } catch (err) {
+      console.warn('Audition preview generation failed:', err);
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  }, [
+    currentBuffer,
+    mode,
+    vocalBalance,
+    vocalSensitivity,
+    stereoCenterWeight,
+    debleedStrength,
+    vocalRange,
+    preserveStereoAmbience,
+    scope,
+    hasSelection,
+    selection,
+    currentTime,
+    isBypassed,
+    startPlaybackWithBuffer
+  ]);
+
+  // Toggle Play / Pause preview
+  const handleTogglePlay = () => {
+    if (isPlaying) {
+      stopAudition();
+      return;
+    }
+
+    const activeBuf = isBypassed
+      ? previewOrig
+      : mode === 'vocals-only'
+      ? previewVocal
+      : mode === 'music-only'
+      ? previewInst
+      : previewBuffer;
+
+    if (!activeBuf) {
+      void generateAudition(true);
+      return;
+    }
+
+    if (!previewCtxRef.current || previewCtxRef.current.state === 'closed') {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      previewCtxRef.current = new AudioCtx();
+    }
+    const ctx = previewCtxRef.current;
+    if (ctx.state === 'suspended') {
+      void ctx.resume();
+    }
+
+    startPlaybackWithBuffer(ctx, activeBuf);
   };
 
   // Switch A/B bypass
   const handleToggleBypass = () => {
     const nextBypass = !isBypassed;
     setIsBypassed(nextBypass);
-    if (isPlaying) {
-      stopAudition();
-      // Restart with new buffer
-      setTimeout(() => {
-        setIsBypassed(nextBypass);
-        const activeBuf = nextBypass
-          ? previewOrig
-          : mode === 'vocals-only'
-          ? previewVocal
-          : mode === 'music-only'
-          ? previewInst
-          : previewBuffer;
-
-        if (activeBuf && previewCtxRef.current) {
-          const ctx = previewCtxRef.current;
-          const source = ctx.createBufferSource();
-          source.buffer = activeBuf;
-          source.loop = true;
-          source.connect(ctx.destination);
-          source.start(0);
-          previewSourceNodeRef.current = source;
-          setIsPlaying(true);
-        }
-      }, 30);
+    if (isPlaying && previewCtxRef.current) {
+      const targetBuf = nextBypass
+        ? previewOrig
+        : mode === 'vocals-only'
+        ? previewVocal
+        : mode === 'music-only'
+        ? previewInst
+        : previewBuffer;
+      if (targetBuf) {
+        startPlaybackWithBuffer(previewCtxRef.current, targetBuf);
+      }
     }
   };
 
@@ -296,10 +302,10 @@ export const VocalSeparationModal: React.FC<VocalSeparationModalProps> = ({
     stopAudition();
     setIsProcessing(true);
 
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioCtx();
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    const ctx = new AudioCtx();
 
+    try {
       const settings: VocalSeparationSettings = {
         mode,
         vocalBalance: mode === 'vocals-only' ? 1.0 : mode === 'music-only' ? 0.0 : vocalBalance,
@@ -327,6 +333,9 @@ export const VocalSeparationModal: React.FC<VocalSeparationModalProps> = ({
       alert('Vocal separation failed: ' + (err instanceof Error ? err.message : String(err)));
       return null;
     } finally {
+      if (ctx.state !== 'closed') {
+        void ctx.close();
+      }
       setIsProcessing(false);
       setProgressInfo(null);
     }
@@ -346,12 +355,15 @@ export const VocalSeparationModal: React.FC<VocalSeparationModalProps> = ({
     } else if (mode === 'music-only') {
       targetBuffer = result.instrumentalBuffer;
       description = `Remove Vocals / Music Only (${gpuInfo?.hasWebGPU ? 'iPad GPU' : 'Audio DSP'})`;
+    } else if (mode === 'both-stems') {
+      targetBuffer = result.vocalBuffer;
+      description = `Isolate Vocals (Stem Separation)`;
     } else {
       targetBuffer = result.outputBuffer;
       description = `Stem Mix (${Math.round((1 - vocalBalance) * 100)}% Music / ${Math.round(vocalBalance * 100)}% Vocals)`;
     }
 
-    onApplyStem(targetBuffer, description);
+    onApplyStem(targetBuffer, description, scope === 'all');
     onClose();
   };
 
@@ -379,8 +391,23 @@ export const VocalSeparationModal: React.FC<VocalSeparationModalProps> = ({
     const result = await executeSeparation();
     if (!result || !currentBuffer) return;
 
-    const targetBuffer = mode === 'vocals-only' ? result.vocalBuffer : result.instrumentalBuffer;
-    const suffix = mode === 'vocals-only' ? '_vocals.wav' : '_instrumental.wav';
+    let targetBuffer: AudioBuffer;
+    let suffix: string;
+
+    if (mode === 'vocals-only') {
+      targetBuffer = result.vocalBuffer;
+      suffix = '_vocals.wav';
+    } else if (mode === 'music-only') {
+      targetBuffer = result.instrumentalBuffer;
+      suffix = '_instrumental.wav';
+    } else if (mode === 'both-stems') {
+      targetBuffer = result.vocalBuffer;
+      suffix = '_vocals.wav';
+    } else {
+      targetBuffer = result.outputBuffer;
+      suffix = `_stem_mix_${Math.round(vocalBalance * 100)}voc.wav`;
+    }
+
     const filename = currentFileName.replace(/\.[^/.]+$/, '') + suffix;
 
     const blob = await encodeWav(targetBuffer, { bitDepth: 16 });
@@ -858,7 +885,15 @@ export const VocalSeparationModal: React.FC<VocalSeparationModalProps> = ({
 
             <div>
               <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>Audition Preview (6s Loop)</span>
+                <span>
+                  {isPreviewLoading
+                    ? 'Generating Audition…'
+                    : isPlaying
+                    ? 'Auditioning (Loop)'
+                    : previewBuffer
+                    ? 'Audition Ready'
+                    : 'Audition Preview (Click Play)'}
+                </span>
                 {isPlaying && (
                   <span className="mono" style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)' }}>
                     {auditionPlayhead.toFixed(2)}s

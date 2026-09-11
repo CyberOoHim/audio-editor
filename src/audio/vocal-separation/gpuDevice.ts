@@ -42,9 +42,11 @@ export async function detectGpuCapabilities(): Promise<GpuCapabilities> {
   }
 
   try {
-    const adapter = await navigator.gpu.requestAdapter({
+    const adapterPromise = navigator.gpu.requestAdapter({
       powerPreference: 'high-performance'
     });
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 800));
+    const adapter = await Promise.race([adapterPromise, timeoutPromise]);
 
     if (!adapter) {
       cachedCapabilities = {
@@ -109,9 +111,11 @@ export async function getWebGpuDevice(): Promise<GPUDevice | null> {
   }
 
   try {
-    const adapter = await navigator.gpu.requestAdapter({
+    const adapterPromise = navigator.gpu.requestAdapter({
       powerPreference: 'high-performance'
     });
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 800));
+    const adapter = await Promise.race([adapterPromise, timeoutPromise]);
     if (!adapter) return null;
 
     cachedDevice = await adapter.requestDevice({

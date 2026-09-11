@@ -5,7 +5,7 @@
  */
 
 import type { AudioSelection, VocalSeparationResult, VocalSeparationSettings } from '../../types/audio';
-import { createBufferSafe } from '../memoryBudget';
+import { createBufferSafe, estimatePcmBytes, assertCanAllocate } from '../memoryBudget';
 import { detectGpuCapabilities, type GpuCapabilities } from './gpuDevice';
 import { processAudioSeparation } from './dspEngine';
 
@@ -38,12 +38,17 @@ export class VocalSeparationEngine {
     sourceBuffer: AudioBuffer,
     settings: VocalSeparationSettings,
     selection?: AudioSelection | null,
-    onProgress?: (info: SeparationProgressInfo) => void
+    onProgress?: (info: SeparationProgressInfo) => void,
+    abortSignal?: AbortSignal
   ): Promise<VocalSeparationResult> {
     const gpuInfo = await this.getGpuCapabilities();
     const sampleRate = sourceBuffer.sampleRate;
     const totalSamples = sourceBuffer.length;
     const numChannels = sourceBuffer.numberOfChannels;
+
+    // Guard memory budget for iPad Safari to prevent WebKit Jetsam process kills
+    const estimatedPcmBytes = estimatePcmBytes(totalSamples, numChannels) * 3;
+    assertCanAllocate(estimatedPcmBytes, 'Stem separation');
 
     let startSample = 0;
     let endSample = totalSamples;
@@ -79,7 +84,8 @@ export class VocalSeparationEngine {
           isGpuAccelerated: gpuInfo.hasWebGPU,
           deviceInfo: gpuInfo.deviceDescription
         });
-      }
+      },
+      abortSignal
     );
 
     // Build target AudioBuffers (Full track length with processed region placed back)
@@ -150,7 +156,8 @@ export class VocalSeparationEngine {
     sourceBuffer: AudioBuffer,
     settings: VocalSeparationSettings,
     centerTimeSec: number = 0,
-    sliceDurationSec: number = 6.0
+    sliceDurationSec: number = 3.5,
+    abortSignal?: AbortSignal
   ): Promise<{
     previewBuffer: AudioBuffer;
     vocalSlice: AudioBuffer;
@@ -186,7 +193,9 @@ export class VocalSeparationEngine {
     const { vocalChannels, instrumentalChannels, outputChannels } = await processAudioSeparation(
       sliceChannels,
       sampleRate,
-      settings
+      settings,
+      undefined,
+      abortSignal
     );
 
     const vocalSlice = createBufferSafe(ctx, numChannels, sliceLen, sampleRate);

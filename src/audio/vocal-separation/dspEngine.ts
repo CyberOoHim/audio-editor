@@ -46,17 +46,17 @@ class FastFourierTransform {
       this.sinTable[i] = Math.sin(angle);
     }
 
-    // Bit reversal index table
+    // Bit reversal index table (N = 2^bits)
+    const bits = Math.round(Math.log2(size));
     this.bitReverse = new Uint32Array(size);
-    let j = 0;
     for (let i = 0; i < size; i++) {
-      this.bitReverse[i] = j;
-      let bit = size >> 1;
-      while (bit <= j) {
-        j -= bit;
-        bit >>= 1;
+      let rev = 0;
+      for (let b = 0; b < bits; b++) {
+        if ((i & (1 << b)) !== 0) {
+          rev |= 1 << (bits - 1 - b);
+        }
       }
-      j += bit;
+      this.bitReverse[i] = rev;
     }
 
     // Precompute Hann Window
@@ -82,21 +82,25 @@ class FastFourierTransform {
       }
     }
 
-    // Cooley-Tukey stages
+    const cosTable = this.cosTable;
+    const sinTable = this.sinTable;
+
+    // Cooley-Tukey stages with k as outer loop for cache & SIMD optimization
     for (let len = 2; len <= n; len <<= 1) {
       const halfLen = len >> 1;
       const step = n / len;
-      for (let i = 0; i < n; i += len) {
-        for (let k = 0; k < halfLen; k++) {
-          const cosVal = this.cosTable[k * step];
-          const sinVal = this.sinTable[k * step];
-          const tr = real[i + k + halfLen] * cosVal - imag[i + k + halfLen] * sinVal;
-          const ti = real[i + k + halfLen] * sinVal + imag[i + k + halfLen] * cosVal;
+      for (let k = 0; k < halfLen; k++) {
+        const cosVal = cosTable[k * step];
+        const sinVal = sinTable[k * step];
+        for (let i = k; i < n; i += len) {
+          const j = i + halfLen;
+          const tr = real[j] * cosVal - imag[j] * sinVal;
+          const ti = real[j] * sinVal + imag[j] * cosVal;
 
-          real[i + k + halfLen] = real[i + k] - tr;
-          imag[i + k + halfLen] = imag[i + k] - ti;
-          real[i + k] += tr;
-          imag[i + k] += ti;
+          real[j] = real[i] - tr;
+          imag[j] = imag[i] - ti;
+          real[i] += tr;
+          imag[i] += ti;
         }
       }
     }
@@ -135,7 +139,8 @@ export async function processAudioSeparation(
   channels: Float32Array[],
   sampleRate: number,
   settings: VocalSeparationSettings,
-  onProgress?: SeparationProgressCallback
+  onProgress?: SeparationProgressCallback,
+  abortSignal?: AbortSignal
 ): Promise<{
   vocalChannels: Float32Array[];
   instrumentalChannels: Float32Array[];
@@ -147,7 +152,9 @@ export async function processAudioSeparation(
 
   const fft = getFft();
   const fftSize = fft.size;
-  const hopSize = 512; // 75% overlap for artifact-free STFT synthesis
+  // 50% overlap (hopSize = 1024): Meets constant overlap-add (COLA) with Hann window
+  // Halves frame iterations and CPU thermal dissipation compared to 75% overlap
+  const hopSize = 1024;
   const halfFft = fftSize >> 1;
   const numFrames = Math.max(1, Math.floor((numSamples - fftSize) / hopSize) + 1);
 
@@ -175,27 +182,40 @@ export async function processAudioSeparation(
   const binHz = sampleRate / fftSize;
   for (let k = 0; k < halfFft; k++) {
     const f = k * binHz;
-    if (f < minHz * 0.7 || f > maxHz * 1.5) {
-      vocalFreqWeights[k] = 0.05;
+    if (f < 85 || f > 8000) {
+      // Hard cutoff: Vocals are never below 85Hz (sub-bass / kick) or above 8kHz (cymbals / air)
+      vocalFreqWeights[k] = 0.0;
     } else {
       let weight = 1.0;
       if (f < minHz) {
-        weight = (f - minHz * 0.7) / (minHz * 0.3 + 0.001);
+        weight = Math.max(0, (f - 85) / (minHz - 85 + 0.001));
       } else if (f > maxHz) {
-        weight = 1.0 - (f - maxHz) / (maxHz * 0.5 + 0.001);
+        weight = Math.max(0, 1.0 - (f - maxHz) / (8000 - maxHz + 0.001));
       }
-      // Formant center bell boost
+      // Formant center bell boost in the critical intelligibility band (1 kHz - 3.5 kHz)
       const formantCenter = 1800;
-      const formantWidth = 1200;
+      const formantWidth = 1100;
       const dist = Math.abs(f - formantCenter) / formantWidth;
-      const formantBoost = 1.0 + 0.35 * Math.exp(-dist * dist);
-      vocalFreqWeights[k] = Math.max(0, Math.min(1.35, weight * formantBoost));
+      const formantBoost = 1.0 + 0.4 * Math.exp(-dist * dist);
+      vocalFreqWeights[k] = Math.max(0, Math.min(1.4, weight * formantBoost));
     }
   }
 
   const debleed = Math.max(0, Math.min(1, settings.debleedStrength));
   const sensitivity = Math.max(0.2, Math.min(2.5, settings.vocalSensitivity));
   const centerWeight = Math.max(0, Math.min(1, settings.stereoCenterWeight));
+  const preserveAmbience = settings.preserveStereoAmbience ?? true;
+
+  // Allocate scratch buffers for Instrumental STFT synthesis
+  const synthInstRealL = new Float32Array(fftSize);
+  const synthInstImagL = new Float32Array(fftSize);
+  const synthInstRealR = new Float32Array(fftSize);
+  const synthInstImagR = new Float32Array(fftSize);
+
+  const instrumentalChannels: Float32Array[] = [];
+  for (let c = 0; c < numChannels; c++) {
+    instrumentalChannels.push(new Float32Array(numSamples));
+  }
 
   const window = fft.window;
   let lastYieldTime = performance.now();
@@ -227,131 +247,193 @@ export async function processAudioSeparation(
       fft.forward(frameRealR, frameImagR);
     }
 
-    // Spectrogram Masking
+    // Spectrogram Masking & Mid-Side Extraction
     for (let k = 0; k < halfFft; k++) {
       const realL = frameRealL[k];
       const imagL = frameImagL[k];
       const magL = Math.sqrt(realL * realL + imagL * imagL);
 
-      let magR = magL;
       let realR = realL;
       let imagR = imagL;
+      let magR = magL;
       if (isStereo) {
         realR = frameRealR[k];
         imagR = frameImagR[k];
         magR = Math.sqrt(realR * realR + imagR * imagR);
       }
 
-      // 1. Stereo Center-Pan Coherence
-      let panCoherence = 1.0;
+      let vocalMask = 0;
+      let vocRealL = 0;
+      let vocImagL = 0;
+      let vocRealR = 0;
+      let vocImagR = 0;
+      let instRealL = 0;
+      let instImagL = 0;
+      let instRealR = 0;
+      let instImagR = 0;
+
       if (isStereo) {
-        const diff = Math.abs(magL - magR);
-        const sum = magL + magR + 1e-6;
-        const stereoDiffRatio = diff / sum; // 0 = dead center, 1 = hard panned
-        panCoherence = Math.max(0, 1.0 - stereoDiffRatio);
+        // Mid (Center) and Side (Stereo difference)
+        const realM = 0.5 * (realL + realR);
+        const imagM = 0.5 * (imagL + imagR);
+        const realS = 0.5 * (realL - realR);
+        const imagS = 0.5 * (imagL - imagR);
+        const magM = Math.sqrt(realM * realM + imagM * imagM);
+        const magS = Math.sqrt(realS * realS + imagS * imagS);
+
+        // Center Pan Coherence: 1.0 = dead center, 0.0 = hard panned
+        const panDiff = Math.abs(magL - magR);
+        const maxMag = Math.max(magL, magR) + 1e-6;
+        const panRatio = panDiff / maxMag;
+
+        // Ratio of stereo side energy to total energy
+        const sideRatio = magS / (magM + magS + 1e-6);
+
+        let panCoherence = Math.max(0, 1.0 - panRatio * 2.2) * Math.max(0, 1.0 - sideRatio * 2.0);
         panCoherence = Math.pow(panCoherence, 1.0 + centerWeight * 2.5);
-      }
 
-      // 2. Combine with vocal formant frequency weight
-      let mask = panCoherence * vocalFreqWeights[k] * sensitivity;
+        vocalMask = panCoherence * vocalFreqWeights[k] * sensitivity;
 
-      // 3. De-bleed gating to cut residual background instruments
-      if (debleed > 0.01) {
-        const thresh = debleed * 0.45;
-        if (mask < thresh) {
-          mask = mask * (mask / (thresh + 1e-5));
-        } else {
-          mask = Math.min(1.0, (mask - thresh) / (1.0 - thresh + 1e-5));
+        // De-bleed gating to cut residual background instruments
+        if (debleed > 0.01) {
+          const thresh = debleed * 0.40;
+          if (vocalMask < thresh) {
+            vocalMask = vocalMask * (vocalMask / (thresh + 1e-5));
+          } else {
+            vocalMask = Math.min(1.0, (vocalMask - thresh) / (1.0 - thresh + 1e-5));
+          }
         }
+        vocalMask = Math.max(0, Math.min(1.0, vocalMask));
+
+        // Isolated Vocal: Extracted from Mid (Center), with slight stereo ambience if desired
+        const centerVocR = realM * vocalMask;
+        const centerVocI = imagM * vocalMask;
+        const ambFactor = preserveAmbience ? 0.12 * vocalMask : 0.0;
+
+        vocRealL = centerVocR + ambFactor * realS;
+        vocImagL = centerVocI + ambFactor * imagS;
+        vocRealR = centerVocR - ambFactor * realS;
+        vocImagR = centerVocI - ambFactor * imagS;
+
+        // Instrumental: Mid-Side Phase-Exact Spectral Cancellation
+        // The center vocal is cancelled right in the frequency domain, while bass, kick,
+        // cymbals, guitars, and stereo instruments are preserved without phase flanging.
+        instRealL = realL - vocRealL;
+        instImagL = imagL - vocImagL;
+        instRealR = realR - vocRealR;
+        instImagR = imagR - vocImagR;
+      } else {
+        // Single-channel / Mono Audio
+        // Uses vocal formant weighting + dynamic harmonic expansion
+        vocalMask = vocalFreqWeights[k] * Math.min(1.0, sensitivity * 0.92);
+
+        if (debleed > 0.01) {
+          const thresh = debleed * 0.35;
+          if (vocalMask < thresh) {
+            vocalMask = vocalMask * (vocalMask / (thresh + 1e-5));
+          } else {
+            vocalMask = Math.min(1.0, (vocalMask - thresh) / (1.0 - thresh + 1e-5));
+          }
+        }
+        vocalMask = Math.max(0, Math.min(1.0, vocalMask));
+
+        vocRealL = realL * vocalMask;
+        vocImagL = imagL * vocalMask;
+        vocRealR = vocRealL;
+        vocImagR = vocImagL;
+
+        instRealL = realL * (1.0 - vocalMask);
+        instImagL = imagL * (1.0 - vocalMask);
+        instRealR = instRealL;
+        instImagR = instImagL;
       }
 
-      mask = Math.max(0, Math.min(1.0, mask));
-
-      // Symmetrical positive & negative frequency bins
-      const symK = fftSize - k;
-
-      synthVocalRealL[k] = realL * mask;
-      synthVocalImagL[k] = imagL * mask;
-      if (k > 0 && symK < fftSize) {
-        synthVocalRealL[symK] = frameRealL[symK] * mask;
-        synthVocalImagL[symK] = frameImagL[symK] * mask;
-      }
+      synthVocalRealL[k] = vocRealL;
+      synthVocalImagL[k] = vocImagL;
+      synthInstRealL[k] = instRealL;
+      synthInstImagL[k] = instImagL;
 
       if (isStereo) {
-        synthVocalRealR[k] = realR * mask;
-        synthVocalImagR[k] = imagR * mask;
-        if (k > 0 && symK < fftSize) {
-          synthVocalRealR[symK] = frameRealR[symK] * mask;
-          synthVocalImagR[symK] = frameImagR[symK] * mask;
+        synthVocalRealR[k] = vocRealR;
+        synthVocalImagR[k] = vocImagR;
+        synthInstRealR[k] = instRealR;
+        synthInstImagR[k] = instImagR;
+      }
+
+      // Symmetrical negative frequency bins for exact real-valued IFFT
+      const symK = fftSize - k;
+      if (k > 0 && symK < fftSize) {
+        synthVocalRealL[symK] = vocRealL;
+        synthVocalImagL[symK] = -vocImagL;
+        synthInstRealL[symK] = instRealL;
+        synthInstImagL[symK] = -instImagL;
+
+        if (isStereo) {
+          synthVocalRealR[symK] = vocRealR;
+          synthVocalImagR[symK] = -vocImagR;
+          synthInstRealR[symK] = instRealR;
+          synthInstImagR[symK] = -instImagR;
         }
       }
     }
 
-    // Inverse FFT to reconstruct Vocal Frame
+    // Inverse FFT to reconstruct Vocal and Instrumental Frames
     fft.inverse(synthVocalRealL, synthVocalImagL);
+    fft.inverse(synthInstRealL, synthInstImagL);
     if (isStereo) {
       fft.inverse(synthVocalRealR, synthVocalImagR);
+      fft.inverse(synthInstRealR, synthInstImagR);
     }
 
-    // Overlap-Add to output vocal channels with Hann synthesis window
+    // Overlap-Add to output stem channels with Hann synthesis window
     for (let i = 0; i < fftSize; i++) {
       const sIdx = startSample + i;
       if (sIdx < numSamples) {
         const w = window[i];
         vocalChannels[0][sIdx] += synthVocalRealL[i] * w;
+        instrumentalChannels[0][sIdx] += synthInstRealL[i] * w;
         if (isStereo) {
           vocalChannels[1][sIdx] += synthVocalRealR[i] * w;
+          instrumentalChannels[1][sIdx] += synthInstRealR[i] * w;
         }
         windowAccum[sIdx] += w * w;
       }
     }
 
-    // Cooperative yielding every ~15ms so iPad Safari stays responsive
+    // Check for user cancellation
+    if (abortSignal?.aborted) {
+      throw new Error('Stem separation was canceled.');
+    }
+
+    // Cooperative yielding with micro-pause so iPad Safari cores stay cool
     const now = performance.now();
-    if (now - lastYieldTime > 16) {
-      const percent = Math.round(5 + (frame / numFrames) * 75);
-      onProgress?.(percent, `Separating vocal formants (${Math.round((frame / numFrames) * 100)}%)…`);
-      await yieldToMain();
+    if (now - lastYieldTime > 25) {
+      const percent = Math.round(5 + (frame / numFrames) * 80);
+      onProgress?.(percent, `Separating stems (${Math.round((frame / numFrames) * 100)}%)…`);
+      // Micro-sleep gives the iPad hardware thread pool breathing room and drops thermal dissipation
+      await new Promise((resolve) => setTimeout(resolve, 3));
       lastYieldTime = performance.now();
     }
   }
 
-  onProgress?.(82, 'Normalizing spectral synthesis…');
+  onProgress?.(88, 'Normalizing spectral synthesis…');
   await yieldToMain();
 
-  // Normalize by window overlap-add accumulation
+  // Normalize both stems by window overlap-add accumulation
   for (let i = 0; i < numSamples; i++) {
     const norm = windowAccum[i];
     if (norm > 1e-4) {
       const inv = 1.0 / norm;
       vocalChannels[0][i] *= inv;
+      instrumentalChannels[0][i] *= inv;
       if (isStereo) {
         vocalChannels[1][i] *= inv;
+        instrumentalChannels[1][i] *= inv;
       }
     }
   }
 
-  onProgress?.(90, 'Calculating instrumental residual…');
-  await yieldToMain();
-
-  // Compute Instrumental Channels via Phase-Exact Residual Subtraction:
-  // Instrumental = Original - Vocal
-  const instrumentalChannels: Float32Array[] = [];
-  for (let c = 0; c < numChannels; c++) {
-    const orig = channels[c];
-    const voc = vocalChannels[c];
-    const inst = new Float32Array(numSamples);
-    for (let i = 0; i < numSamples; i++) {
-      let instVal = orig[i] - voc[i];
-      // Soft saturation clamp to prevent numeric clipping
-      if (instVal > 1.0) instVal = 1.0;
-      if (instVal < -1.0) instVal = -1.0;
-      inst[i] = instVal;
-    }
-    instrumentalChannels.push(inst);
-  }
-
-  onProgress?.(96, 'Synthesizing output mix…');
+  onProgress?.(94, 'Synthesizing output mix…');
   await yieldToMain();
 
   // Generate requested output mix

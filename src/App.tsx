@@ -1068,7 +1068,7 @@ export function AudioStudioApp() {
     audioEngine.setBufferDirectly(newBuffer, label, selection, selection);
     showToast('Effects applied', 'success');
     });
-  }, [currentBuffer, runEdit, showToast]);
+  }, [currentBuffer, runEdit, selection, showToast]);
 
   const handleOpenVoiceChangerModal = useCallback(() => {
     setVoiceChangerModalOpen(true);
@@ -1086,8 +1086,12 @@ export function AudioStudioApp() {
     setVocalSeparationModalOpen(false);
   }, []);
 
-  const handleApplyVocalSeparation = useCallback((resultBuffer: AudioBuffer, actionDescription: string) => {
-    audioEngine.setBufferDirectly(resultBuffer, actionDescription, selection, selection);
+  const handleApplyVocalSeparation = useCallback((resultBuffer: AudioBuffer, actionDescription: string, clearSelection: boolean = false) => {
+    const nextSelection = clearSelection ? null : selection;
+    if (clearSelection) {
+      setSelection(null);
+    }
+    audioEngine.setBufferDirectly(resultBuffer, actionDescription, selection, nextSelection);
     showToast(actionDescription, 'success');
   }, [selection, showToast]);
 
