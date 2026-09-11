@@ -127,26 +127,26 @@ export class AudioEngine {
     this.notifyBufferListeners();
   }
 
-  public undo(): boolean {
+  public undo(): { undoneDescription: string } | null {
     const result = this.history.undo();
     if (result) {
       this.stop();
       this.currentBuffer = result.buffer;
       this.notifyBufferListeners();
-      return true;
+      return { undoneDescription: result.undoneDescription };
     }
-    return false;
+    return null;
   }
 
-  public redo(): boolean {
+  public redo(): { redoneDescription: string } | null {
     const result = this.history.redo();
     if (result) {
       this.stop();
       this.currentBuffer = result.buffer;
       this.notifyBufferListeners();
-      return true;
+      return { redoneDescription: result.redoneDescription };
     }
-    return false;
+    return null;
   }
 
   public getBuffer(): AudioBuffer | null {

@@ -61,6 +61,7 @@ import { RecordModal } from './components/recorder/RecordModal';
 import { EffectsModal } from './components/modals/EffectsModal';
 import { VoiceChangerModal } from './components/modals/VoiceChangerModal';
 import { VoiceChangerEngine } from './audio/VoiceChangerEngine';
+import { VOICE_PRESETS } from './audio/voicePresets';
 import { ExportModal } from './components/modals/ExportModal';
 import { GainModal } from './components/modals/GainModal';
 import { SilenceModal } from './components/modals/SilenceModal';
@@ -94,6 +95,8 @@ export function AudioStudioApp() {
   const [timeFormat, setTimeFormat] = useState<TimeFormat>('hms');
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
+  const [undoDescription, setUndoDescription] = useState<string>('');
+  const [redoDescription, setRedoDescription] = useState<string>('');
 
   // User Settable Envelope & Tool Defaults
   const [fadeInDuration, setFadeInDuration] = useState<number>(1.5);
@@ -292,6 +295,8 @@ export function AudioStudioApp() {
       setCurrentBuffer(buffer);
       setCanUndo(audioEngine.history.canUndo());
       setCanRedo(audioEngine.history.canRedo());
+      setUndoDescription(audioEngine.history.getUndoEntry()?.description || '');
+      setRedoDescription(audioEngine.history.getRedoEntry()?.description || '');
     });
 
     return () => {
@@ -362,14 +367,16 @@ export function AudioStudioApp() {
 
   // Undo / Redo
   const handleUndo = useCallback(() => {
-    if (audioEngine.undo()) {
-      showToast('Undo', 'info');
+    const res = audioEngine.undo();
+    if (res) {
+      showToast(`Undo: ${res.undoneDescription}`, 'info');
     }
   }, [showToast]);
 
   const handleRedo = useCallback(() => {
-    if (audioEngine.redo()) {
-      showToast('Redo', 'info');
+    const res = audioEngine.redo();
+    if (res) {
+      showToast(`Redo: ${res.redoneDescription}`, 'info');
     }
   }, [showToast]);
 
@@ -536,10 +543,13 @@ export function AudioStudioApp() {
     });
   }, []);
 
-  const handlePlaybackRateChange = useCallback((rate: number) => {
-    setPlaybackRate(rate);
-    audioEngine.setPlaybackRate(rate);
-    showToast(`Speed: ${rate}x`, 'info');
+  const handlePlaybackRateChange = useCallback((rate: number, showToastFeedback: boolean = false) => {
+    const cleanRate = Math.round(rate * 100) / 100;
+    setPlaybackRate(cleanRate);
+    audioEngine.setPlaybackRate(cleanRate);
+    if (showToastFeedback) {
+      showToast(`Speed: ${cleanRate}x`, 'info');
+    }
   }, [showToast]);
 
   const handleSilence = useCallback(() => {
@@ -822,9 +832,13 @@ export function AudioStudioApp() {
       const scopeDesc = settings.scope === 'selection' && selection && selection.end > selection.start
         ? ` (${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s)`
         : '';
+      const presetObj = VOICE_PRESETS.find((p) => p.id === settings.presetId);
+      const presetName = presetObj ? presetObj.name : (settings.presetId && settings.presetId !== 'custom' ? settings.presetId : 'Custom FX');
+      const actionName = `Voice FX: ${presetName}${scopeDesc}`;
+
       const newBuffer = await VoiceChangerEngine.renderVoiceChanger(currentBuffer, settings, selection);
-      audioEngine.setBufferDirectly(newBuffer, `Voice FX: ${settings.presetId || 'Custom'}${scopeDesc}`);
-      showToast('Voice transformation applied', 'success');
+      audioEngine.setBufferDirectly(newBuffer, actionName);
+      showToast(`Applied ${actionName}`, 'success');
     } catch (err) {
       console.error('Failed to apply voice changer:', err);
       showToast('Error applying voice transformation', 'error');
@@ -1492,6 +1506,8 @@ export function AudioStudioApp() {
             duration={duration}
             canUndo={canUndo}
             canRedo={canRedo}
+            undoDescription={undoDescription}
+            redoDescription={redoDescription}
             volume={volume}
             playbackRate={playbackRate}
             sampleRate={currentBuffer?.sampleRate || 44100}
@@ -1567,6 +1583,12 @@ export function AudioStudioApp() {
         currentBuffer={currentBuffer}
         selection={selection}
         onApply={handleApplyVoiceChanger}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        undoActionName={undoDescription}
+        redoActionName={redoDescription}
       />
 
       <ExportModal

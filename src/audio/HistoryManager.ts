@@ -84,23 +84,40 @@ export class HistoryManager {
     return this.currentIndex < this.history.length - 1;
   }
 
-  public undo(): { entry: AudioHistoryEntry; buffer: AudioBuffer } | null {
+  public getUndoEntry(): AudioHistoryEntry | null {
+    if (this.currentIndex > 0 && this.currentIndex < this.history.length) {
+      return this.history[this.currentIndex];
+    }
+    return null;
+  }
+
+  public getRedoEntry(): AudioHistoryEntry | null {
+    if (this.currentIndex >= 0 && this.currentIndex < this.history.length - 1) {
+      return this.history[this.currentIndex + 1];
+    }
+    return null;
+  }
+
+  public undo(): { entry: AudioHistoryEntry; buffer: AudioBuffer; undoneDescription: string } | null {
     if (!this.canUndo()) return null;
+    const undoneEntry = this.history[this.currentIndex];
     this.currentIndex--;
     const entry = this.history[this.currentIndex];
     return {
       entry,
       buffer: entry.buffer,
+      undoneDescription: undoneEntry.description,
     };
   }
 
-  public redo(): { entry: AudioHistoryEntry; buffer: AudioBuffer } | null {
+  public redo(): { entry: AudioHistoryEntry; buffer: AudioBuffer; redoneDescription: string } | null {
     if (!this.canRedo()) return null;
     this.currentIndex++;
     const entry = this.history[this.currentIndex];
     return {
       entry,
       buffer: entry.buffer,
+      redoneDescription: entry.description,
     };
   }
 

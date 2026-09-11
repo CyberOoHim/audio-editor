@@ -15,7 +15,9 @@ import {
   Check,
   Zap,
   Volume2,
-  Ear
+  Ear,
+  Undo2,
+  Redo2
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { Slider } from '../common/Slider';
@@ -40,6 +42,12 @@ export interface VoiceChangerModalProps {
   currentBuffer: AudioBuffer | null;
   selection: AudioSelection | null;
   onApply: (settings: VoiceChangerSettings) => Promise<void>;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  undoActionName?: string;
+  redoActionName?: string;
 }
 
 type TabType = 'presets' | 'lofi' | 'spatial' | 'pitch';
@@ -49,7 +57,13 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   onClose,
   currentBuffer,
   selection,
-  onApply
+  onApply,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
+  undoActionName = '',
+  redoActionName = ''
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('presets');
   const [settings, setSettings] = useState<VoiceChangerSettings>(() => ({
@@ -76,6 +90,51 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
       }));
     }
   }, [isOpen, hasSelection]);
+
+  // Global hotkeys inside modal (Ctrl+Z / Ctrl+Y / Cmd+Z / Cmd+Shift+Z)
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey) {
+          if (canRedo && onRedo) {
+            VoiceChangerEngine.stopPreview();
+            setIsPlaying(false);
+            onRedo();
+          }
+        } else {
+          if (canUndo && onUndo) {
+            VoiceChangerEngine.stopPreview();
+            setIsPlaying(false);
+            onUndo();
+          }
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (canRedo && onRedo) {
+          VoiceChangerEngine.stopPreview();
+          setIsPlaying(false);
+          onRedo();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, canUndo, canRedo, onUndo, onRedo]);
+
+  // When currentBuffer updates (e.g. from undo/redo or apply), halt preview cleanly
+  useEffect(() => {
+    if (isPlaying) {
+      VoiceChangerEngine.stopPreview();
+      setIsPlaying(false);
+    }
+  }, [currentBuffer, isPlaying]);
 
   // Teardown preview on unmount or close to conserve iPad battery
   useEffect(() => {
@@ -249,13 +308,15 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
     }
   };
 
-  const handleApply = async () => {
+  const handleApply = async (closeAfter: boolean = false) => {
     VoiceChangerEngine.stopPreview();
     setIsPlaying(false);
     setIsProcessing(true);
     try {
       await onApply(settings);
-      onClose();
+      if (closeAfter) {
+        onClose();
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -272,17 +333,56 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
       title="Voice Changer & Acoustic Studio"
       maxWidth="720px"
       footer={
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={handleReset}
-            disabled={isProcessing}
-            title="Reset all voice parameters to clean defaults"
-          >
-            <RotateCcw size={14} /> Reset Defaults
-          </button>
-          <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
+          {/* Global Undo / Redo & Defaults */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                VoiceChangerEngine.stopPreview();
+                setIsPlaying(false);
+                onUndo?.();
+              }}
+              disabled={isProcessing || !canUndo}
+              title={undoActionName ? `Undo: ${undoActionName} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            >
+              <Undo2 size={13} />
+              <span>Undo</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                VoiceChangerEngine.stopPreview();
+                setIsPlaying(false);
+                onRedo?.();
+              }}
+              disabled={isProcessing || !canRedo}
+              title={redoActionName ? `Redo: ${redoActionName} (Ctrl+Y)` : 'Redo (Ctrl+Y)'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            >
+              <Redo2 size={13} />
+              <span>Redo</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={handleReset}
+              disabled={isProcessing}
+              title="Reset all voice parameters to clean defaults"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            >
+              <RotateCcw size={13} />
+              <span>Reset Controls</span>
+            </button>
+          </div>
+
+          {/* Close, Apply (Keep Open), Apply & Close */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              type="button"
               className="btn btn-secondary"
               onClick={() => {
                 VoiceChangerEngine.stopPreview();
@@ -291,15 +391,29 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
               }}
               disabled={isProcessing}
             >
-              Cancel
+              Close
             </button>
             <button
-              className="btn btn-primary"
-              onClick={handleApply}
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => handleApply(false)}
               disabled={isProcessing || !currentBuffer}
+              title="Apply voice FX to audio buffer without closing modal (managed in global undo/redo)"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >
               <Sparkles size={14} />
-              {isProcessing ? 'Processing Voice FX...' : 'Apply Voice FX'}
+              <span>{isProcessing ? 'Processing...' : 'Apply'}</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => handleApply(true)}
+              disabled={isProcessing || !currentBuffer}
+              title="Apply voice FX to audio buffer and close modal (managed in global undo/redo)"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <Check size={14} />
+              <span>{isProcessing ? 'Processing...' : 'Apply & Close'}</span>
             </button>
           </div>
         </div>
@@ -417,6 +531,44 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Global Undo State Pill if active buffer has a Voice FX entry */}
+        {undoActionName && undoActionName.includes('Voice FX') && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '7px 12px',
+              backgroundColor: 'rgba(56, 189, 248, 0.08)',
+              border: '1px solid rgba(56, 189, 248, 0.25)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: 'calc(11.5px * var(--ui-font-scale, 1))',
+              color: 'var(--text-primary)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <Zap size={13} color="var(--accent-cyan, #06b6d4)" />
+              <span>Active in buffer: <strong>{undoActionName}</strong></span>
+              <span style={{ color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--ui-font-scale, 1))' }}>
+                (managed with global redo/undo)
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              style={{ height: 24, padding: '0 8px', fontSize: 'calc(11px * var(--ui-font-scale, 1))', color: 'var(--accent-cyan, #06b6d4)' }}
+              onClick={() => {
+                VoiceChangerEngine.stopPreview();
+                setIsPlaying(false);
+                onUndo?.();
+              }}
+              title="Undo this voice transformation (Ctrl+Z)"
+            >
+              <Undo2 size={12} /> Undo FX
+            </button>
+          </div>
+        )}
 
         {/* Tab Navigation */}
         <div

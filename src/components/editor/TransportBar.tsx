@@ -10,10 +10,10 @@ import {
   ZoomOut,
   Maximize2,
   Volume2,
-  VolumeX,
-  Gauge
+  VolumeX
 } from 'lucide-react';
 import type { PlayState, TimeFormat } from '../../types/audio';
+import { SpeedControl } from './SpeedControl';
 
 export interface TransportBarProps {
   playState: PlayState;
@@ -21,6 +21,8 @@ export interface TransportBarProps {
   duration: number;
   canUndo: boolean;
   canRedo: boolean;
+  undoDescription?: string;
+  redoDescription?: string;
   volume: number;
   playbackRate?: number;
   sampleRate?: number;
@@ -35,7 +37,7 @@ export interface TransportBarProps {
   onZoomOut: () => void;
   onZoomFit: () => void;
   onVolumeChange: (val: number) => void;
-  onPlaybackRateChange?: (rate: number) => void;
+  onPlaybackRateChange?: (rate: number, showToastFeedback?: boolean) => void;
   onToggleTimeFormat?: () => void;
 }
 
@@ -45,6 +47,8 @@ export const TransportBar: React.FC<TransportBarProps> = React.memo(({
   duration,
   canUndo,
   canRedo,
+  undoDescription,
+  redoDescription,
   volume,
   playbackRate = 1.0,
   sampleRate = 44100,
@@ -77,14 +81,6 @@ export const TransportBar: React.FC<TransportBarProps> = React.memo(({
 
   const isPlaying = playState === 'playing';
 
-  const speedOptions = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
-  const handleCycleSpeed = () => {
-    if (!onPlaybackRateChange) return;
-    const currIdx = speedOptions.findIndex((s) => Math.abs(s - playbackRate) < 0.05);
-    const nextIdx = currIdx === -1 || currIdx === speedOptions.length - 1 ? 0 : currIdx + 1;
-    onPlaybackRateChange(speedOptions[nextIdx]);
-  };
-
   return (
     <div className="transport-bar">
       {/* Desktop Inline Layout */}
@@ -106,7 +102,7 @@ export const TransportBar: React.FC<TransportBarProps> = React.memo(({
             className="btn btn-secondary btn-icon"
             onClick={onUndo}
             disabled={!canUndo}
-            title="Undo (Ctrl+Z)"
+            title={undoDescription ? `Undo: ${undoDescription} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}
           >
             <Undo2 size={16} />
           </button>
@@ -115,7 +111,7 @@ export const TransportBar: React.FC<TransportBarProps> = React.memo(({
             className="btn btn-secondary btn-icon"
             onClick={onRedo}
             disabled={!canRedo}
-            title="Redo (Ctrl+Y)"
+            title={redoDescription ? `Redo: ${redoDescription} (Ctrl+Y)` : 'Redo (Ctrl+Y)'}
           >
             <Redo2 size={16} />
           </button>
@@ -157,24 +153,12 @@ export const TransportBar: React.FC<TransportBarProps> = React.memo(({
 
         {/* Right: Speed, Zoom & Volume */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Playback Speed Pill */}
+          {/* Playback Speed Fine-Grained Slider */}
           {onPlaybackRateChange && (
-            <button
-              className="btn btn-secondary btn-sm mono"
-              onClick={handleCycleSpeed}
-              style={{
-                height: 26,
-                padding: '0 8px',
-                fontSize: 'var(--font-sm)',
-                fontWeight: 600,
-                color: playbackRate !== 1.0 ? 'var(--accent-cyan)' : 'var(--text-secondary)',
-                border: playbackRate !== 1.0 ? '1px solid var(--accent-cyan)' : undefined
-              }}
-              title="Click to cycle playback speed (0.5x, 0.75x, 1x, 1.25x, 1.5x, 2x)"
-            >
-              <Gauge size={12} />
-              <span>{playbackRate.toFixed(2).replace(/\.00$/, '')}x</span>
-            </button>
+            <SpeedControl
+              playbackRate={playbackRate}
+              onPlaybackRateChange={onPlaybackRateChange}
+            />
           )}
 
           {/* Zoom */}
@@ -229,19 +213,11 @@ export const TransportBar: React.FC<TransportBarProps> = React.memo(({
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             {onPlaybackRateChange && (
-              <button
-                className="btn btn-ghost btn-sm mono"
-                onClick={handleCycleSpeed}
-                style={{
-                  height: 24,
-                  padding: '0 6px',
-                  fontSize: 'var(--font-sm)',
-                  color: playbackRate !== 1.0 ? 'var(--accent-cyan)' : 'var(--text-secondary)'
-                }}
-                title="Playback Speed"
-              >
-                {playbackRate.toFixed(2).replace(/\.00$/, '')}x
-              </button>
+              <SpeedControl
+                playbackRate={playbackRate}
+                onPlaybackRateChange={onPlaybackRateChange}
+                isMobile
+              />
             )}
 
             <button className="btn btn-ghost btn-icon-sm" onClick={onZoomOut} title="Zoom Out">
@@ -269,7 +245,7 @@ export const TransportBar: React.FC<TransportBarProps> = React.memo(({
             className="btn btn-secondary btn-icon"
             onClick={onUndo}
             disabled={!canUndo}
-            title="Undo"
+            title={undoDescription ? `Undo: ${undoDescription}` : 'Undo'}
           >
             <Undo2 size={16} />
           </button>
@@ -278,7 +254,7 @@ export const TransportBar: React.FC<TransportBarProps> = React.memo(({
             className="btn btn-secondary btn-icon"
             onClick={onRedo}
             disabled={!canRedo}
-            title="Redo"
+            title={redoDescription ? `Redo: ${redoDescription}` : 'Redo'}
           >
             <Redo2 size={16} />
           </button>
