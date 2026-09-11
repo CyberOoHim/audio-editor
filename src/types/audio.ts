@@ -111,3 +111,52 @@ export interface RecordingState {
   peakL: number;
   peakR: number;
 }
+
+export type VoiceChangerEnvironment =
+  | 'none'
+  | 'cathedral'
+  | 'bathroom'
+  | 'warehouse'
+  | 'hall'
+  | 'underwater'
+  | 'behind-wall'
+  | 'cosmic-void';
+
+export type VoiceChangerBandpass =
+  | 'none'
+  | 'telephone'
+  | 'walkie-talkie'
+  | 'megaphone'
+  | 'am-radio'
+  | 'underwater'
+  | 'behind-wall';
+
+export interface VoiceChangerSettings {
+  presetId?: string;
+  // Pitch & Character
+  pitchSemitones: number; // -12 to +12
+  ringModFreq: number;    // 0 = off, 20 to 300 Hz
+  ringModMix: number;     // 0 to 1
+  robotTone: number;      // 0 to 1
+
+  // 1. Lo-Fi Suite
+  bitDepth: number;       // 4 to 16 (16 = bypass)
+  sampleRateKhz: number;  // 4, 8, 11, 16, 22, 44 (44 = bypass)
+  vinylCrackle: number;   // 0 to 1
+  tapeSaturation: number; // 0 to 1
+  tapeFlutter: number;    // 0 to 1 (wow/flutter)
+  bandpass: VoiceChangerBandpass;
+
+  // 2. Spatial & Environment Suite
+  environment: VoiceChangerEnvironment;
+  reverbMix: number;      // 0 to 1
+  reverbDecay: number;    // 0.2 to 5.0s
+  reverbDamping: number;  // 500 to 16000 Hz
+  reverbPreDelay: number; // 0 to 0.1s
+  stereoWidth: number;    // 0 to 2 (1 = normal, 2 = 3D Haas expand)
+
+  // Master
+  outputGainDb: number;   // -12 to +12 dB
+  mix: number;            // 0 to 1 (dry / wet)
+  scope: 'all' | 'selection';
+}

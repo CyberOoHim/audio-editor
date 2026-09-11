@@ -20,7 +20,8 @@ import type {
   FadeType,
   FadePosition,
   TimeFormat,
-  SignalGeneratorSettings
+  SignalGeneratorSettings,
+  VoiceChangerSettings
 } from './types/audio';
 
 import {
@@ -58,6 +59,8 @@ import { SelectionInfo } from './components/editor/SelectionInfo';
 
 import { RecordModal } from './components/recorder/RecordModal';
 import { EffectsModal } from './components/modals/EffectsModal';
+import { VoiceChangerModal } from './components/modals/VoiceChangerModal';
+import { VoiceChangerEngine } from './audio/VoiceChangerEngine';
 import { ExportModal } from './components/modals/ExportModal';
 import { GainModal } from './components/modals/GainModal';
 import { SilenceModal } from './components/modals/SilenceModal';
@@ -158,6 +161,7 @@ export function AudioStudioApp() {
   });
   const [recordModalOpen, setRecordModalOpen] = useState<boolean>(false);
   const [effectsModalOpen, setEffectsModalOpen] = useState<boolean>(false);
+  const [voiceChangerModalOpen, setVoiceChangerModalOpen] = useState<boolean>(false);
   const [exportModalOpen, setExportModalOpen] = useState<boolean>(false);
   const [gainModalOpen, setGainModalOpen] = useState<boolean>(false);
   const [silenceModalOpen, setSilenceModalOpen] = useState<boolean>(false);
@@ -804,6 +808,29 @@ export function AudioStudioApp() {
     showToast('Effects applied', 'success');
   }, [currentBuffer, showToast]);
 
+  const handleOpenVoiceChangerModal = useCallback(() => {
+    setVoiceChangerModalOpen(true);
+  }, []);
+
+  const handleCloseVoiceChangerModal = useCallback(() => {
+    setVoiceChangerModalOpen(false);
+  }, []);
+
+  const handleApplyVoiceChanger = useCallback(async (settings: VoiceChangerSettings) => {
+    if (!currentBuffer) return;
+    try {
+      const scopeDesc = settings.scope === 'selection' && selection && selection.end > selection.start
+        ? ` (${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s)`
+        : '';
+      const newBuffer = await VoiceChangerEngine.renderVoiceChanger(currentBuffer, settings, selection);
+      audioEngine.setBufferDirectly(newBuffer, `Voice FX: ${settings.presetId || 'Custom'}${scopeDesc}`);
+      showToast('Voice transformation applied', 'success');
+    } catch (err) {
+      console.error('Failed to apply voice changer:', err);
+      showToast('Error applying voice transformation', 'error');
+    }
+  }, [currentBuffer, selection, showToast]);
+
   const handleExport = useCallback(async (
     settings: ExportSettings,
     destination: 'download' | 'library',
@@ -1383,6 +1410,7 @@ export function AudioStudioApp() {
             onInvert={handleInvert}
             onSplit={handleSplit}
             onOpenEffects={handleOpenEffectsModal}
+            onOpenVoiceChanger={handleOpenVoiceChangerModal}
             onOpenGenerator={handleOpenGeneratorModal}
             onClearWorkspace={handleClearWorkspace}
           />
@@ -1531,6 +1559,14 @@ export function AudioStudioApp() {
         isOpen={effectsModalOpen}
         onClose={handleCloseEffectsModal}
         onApplyEffects={handleApplyEffects}
+      />
+
+      <VoiceChangerModal
+        isOpen={voiceChangerModalOpen}
+        onClose={handleCloseVoiceChangerModal}
+        currentBuffer={currentBuffer}
+        selection={selection}
+        onApply={handleApplyVoiceChanger}
       />
 
       <ExportModal

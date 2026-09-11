@@ -14,7 +14,8 @@ import {
   BarChart2,
   Radio,
   SlidersHorizontal,
-  FileX
+  FileX,
+  Sparkles
 } from 'lucide-react';
 import type { FadeType } from '../../types/audio';
 
@@ -36,6 +37,7 @@ export interface ToolPaletteProps {
   onInvert: () => void;
   onSplit: () => void;
   onOpenEffects: () => void;
+  onOpenVoiceChanger: () => void;
   onOpenGenerator: () => void;
   onClearWorkspace?: () => void;
 }
@@ -58,6 +60,7 @@ export const ToolPalette: React.FC<ToolPaletteProps> = React.memo(({
   onInvert,
   onSplit,
   onOpenEffects,
+  onOpenVoiceChanger,
   onOpenGenerator,
   onClearWorkspace
 }) => {
@@ -208,12 +211,26 @@ export const ToolPalette: React.FC<ToolPaletteProps> = React.memo(({
         </button>
 
         <button
-          className="btn btn-primary btn-sm"
+          className="btn btn-secondary btn-sm"
           onClick={onOpenEffects}
           disabled={!hasBuffer}
           title="Open EQ, Highpass/Lowpass Filters & Compressor DSP Studio"
         >
           <Sliders size={14} /> Effects & EQ
+        </button>
+
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={onOpenVoiceChanger}
+          disabled={!hasBuffer}
+          title="Open Voice Changer Studio (Lo-Fi, Spatial Environments & Character Voice Effects)"
+          style={{
+            background: 'linear-gradient(135deg, #0284c7, #8b5cf6)',
+            borderColor: 'rgba(139, 92, 246, 0.4)',
+            color: '#ffffff'
+          }}
+        >
+          <Sparkles size={14} /> Voice Changer
         </button>
       </div>
 
