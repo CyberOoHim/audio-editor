@@ -5,12 +5,19 @@ import {
   Minus,
   Plus,
   X,
-  ChevronDown
+  ChevronDown,
+  Music2,
+  Zap
 } from 'lucide-react';
 
 export interface SpeedControlProps {
   playbackRate: number;
+  keepPitch?: boolean;
   onPlaybackRateChange: (rate: number, showToastFeedback?: boolean) => void;
+  onKeepPitchChange?: (keepPitch: boolean) => void;
+  onApplySpeedTransform?: (rate: number, keepPitch: boolean) => void;
+  hasBuffer?: boolean;
+  hasSelection?: boolean;
   isMobile?: boolean;
 }
 
@@ -18,7 +25,12 @@ const SPEED_PRESETS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
 export const SpeedControl: React.FC<SpeedControlProps> = React.memo(({
   playbackRate,
+  keepPitch = true,
   onPlaybackRateChange,
+  onKeepPitchChange,
+  onApplySpeedTransform,
+  hasBuffer = false,
+  hasSelection = false,
   isMobile = false
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(false);
@@ -226,6 +238,53 @@ export const SpeedControl: React.FC<SpeedControlProps> = React.memo(({
               );
             })}
           </div>
+
+          {/* Keep Pitch Option (Default: Keep Pitch = true) */}
+          <div className="speed-pitch-control-row">
+            <label
+              className="speed-pitch-label"
+              title="Keep original musical pitch (time stretch) or let pitch shift with speed"
+            >
+              <input
+                type="checkbox"
+                className="speed-pitch-checkbox"
+                checked={keepPitch}
+                onChange={(e) => onKeepPitchChange?.(e.target.checked)}
+              />
+              <div className="speed-pitch-text-wrap">
+                <div className="speed-pitch-title-row">
+                  <Music2 size={11} style={{ color: keepPitch ? 'var(--accent-cyan)' : 'var(--text-muted)' }} />
+                  <span className="speed-pitch-title">Keep pitch</span>
+                  <span className={`speed-pitch-badge ${keepPitch ? 'active' : ''}`}>
+                    {keepPitch ? 'ON' : 'OFF'}
+                  </span>
+                </div>
+                <span className="speed-pitch-desc">
+                  {keepPitch
+                    ? 'Time stretch (pitch preserved)'
+                    : 'Resample / Tape mode (pitch shifts)'}
+                </span>
+              </div>
+            </label>
+          </div>
+
+          {/* Apply Speed Transform Button (Render / Bake into Audio) */}
+          {onApplySpeedTransform && hasBuffer && isCustomRate && (
+            <div className="speed-apply-wrap">
+              <button
+                type="button"
+                className="speed-apply-btn"
+                onClick={() => {
+                  onApplySpeedTransform(roundRate, keepPitch);
+                  setIsOpen(false);
+                }}
+                title={`Apply ${roundRate}x speed transform permanently to ${hasSelection ? 'selection' : 'entire track'} (${keepPitch ? 'keep pitch' : 'shift pitch'})`}
+              >
+                <Zap size={12} />
+                <span>Apply Transform ({roundRate}x)</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -1,4 +1,5 @@
 import type { EQSettings, FilterSettings, CompressorSettings } from '../types/audio';
+import * as BufferUtils from './BufferUtils';
 
 export class EffectsChain {
   public static async renderEffects(
@@ -6,9 +7,16 @@ export class EffectsChain {
     eq: EQSettings,
     filters: FilterSettings,
     comp: CompressorSettings,
-    speedMultiplier: number = 1.0
+    speedMultiplier: number = 1.0,
+    keepPitch: boolean = true
   ): Promise<AudioBuffer> {
-    const targetLength = Math.max(1, Math.floor(sourceBuffer.length / speedMultiplier));
+    const isStandardSpeed = Math.abs(speedMultiplier - 1.0) < 0.005;
+    
+    // If keepPitch is false or standard speed, offlineCtx buffer source playbackRate handles standard resampling
+    const sourcePlaybackRate = (isStandardSpeed || keepPitch) ? 1.0 : speedMultiplier;
+    const targetLength = (isStandardSpeed || keepPitch) 
+      ? sourceBuffer.length 
+      : Math.max(1, Math.floor(sourceBuffer.length / speedMultiplier));
     const targetSampleRate = sourceBuffer.sampleRate;
     
     const offlineCtx = new OfflineAudioContext(
@@ -20,7 +28,7 @@ export class EffectsChain {
     // Source Node
     const sourceNode = offlineCtx.createBufferSource();
     sourceNode.buffer = sourceBuffer;
-    sourceNode.playbackRate.value = speedMultiplier;
+    sourceNode.playbackRate.value = sourcePlaybackRate;
 
     let currentNode: AudioNode = sourceNode;
 
@@ -89,6 +97,13 @@ export class EffectsChain {
 
     // Start playback and render
     sourceNode.start(0);
-    return await offlineCtx.startRendering();
+    const rendered = await offlineCtx.startRendering();
+
+    // If speed changed and keepPitch is true, apply timeStretchBuffer (WSOLA)
+    if (!isStandardSpeed && keepPitch) {
+      return BufferUtils.timeStretchBuffer(offlineCtx, rendered, speedMultiplier, true);
+    }
+
+    return rendered;
   }
 }

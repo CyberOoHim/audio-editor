@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sliders, Sparkles } from 'lucide-react';
+import { Sliders, Sparkles, Music2 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { Knob } from '../common/Knob';
 import { Slider } from '../common/Slider';
@@ -12,7 +12,8 @@ export interface EffectsModalProps {
     eq: EQSettings,
     filters: FilterSettings,
     comp: CompressorSettings,
-    speed: number
+    speed: number,
+    keepPitch: boolean
   ) => Promise<void>;
 }
 
@@ -48,12 +49,13 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
   });
 
   const [speed, setSpeed] = useState<number>(1.0);
+  const [keepPitch, setKeepPitch] = useState<boolean>(true);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const handleApply = async () => {
     setIsProcessing(true);
     try {
-      await onApplyEffects(eq, filters, comp, speed);
+      await onApplyEffects(eq, filters, comp, speed, keepPitch);
       onClose();
     } finally {
       setIsProcessing(false);
@@ -85,6 +87,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
       release: 0.25
     });
     setSpeed(1.0);
+    setKeepPitch(true);
   };
 
   return (
@@ -285,7 +288,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
             />
           </div>
 
-          <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 10 }}>
+          <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
             <Slider
               label="Playback & Render Speed Multiplier"
               value={speed}
@@ -295,6 +298,50 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
               unit="x"
               onChange={(val) => setSpeed(val)}
             />
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 10px',
+                background: 'var(--bg-input)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-sm)'
+              }}
+            >
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  cursor: 'pointer',
+                  fontSize: 'calc(11.5px * var(--ui-font-scale, 1))',
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  userSelect: 'none'
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={keepPitch}
+                  onChange={(e) => setKeepPitch(e.target.checked)}
+                  style={{ accentColor: 'var(--accent-cyan)', width: 14, height: 14, cursor: 'pointer' }}
+                />
+                <Music2 size={13} style={{ color: keepPitch ? 'var(--accent-cyan)' : 'var(--text-muted)' }} />
+                <span>Keep Pitch (Time Stretch)</span>
+              </label>
+
+              <span
+                style={{
+                  fontSize: 'calc(10px * var(--ui-font-scale, 1))',
+                  color: keepPitch ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                  fontWeight: 500
+                }}
+              >
+                {keepPitch ? 'Pitch Preserved' : 'Pitch Shifts (Resample)'}
+              </span>
+            </div>
           </div>
         </div>
       </div>

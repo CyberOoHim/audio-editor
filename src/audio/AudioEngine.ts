@@ -1,5 +1,6 @@
 import type { PlayState, AudioSelection } from '../types/audio';
 import { HistoryManager } from './HistoryManager';
+import { timeStretchBuffer } from './BufferUtils';
 
 export type TimeUpdateCallback = (currentTime: number) => void;
 export type StateChangeCallback = (state: PlayState) => void;
@@ -18,6 +19,8 @@ export class AudioEngine {
   private startTime: number = 0;
   private startOffset: number = 0;
   private playbackRate: number = 1.0;
+  private keepPitch: boolean = true;
+  private stretchedCache: { source: AudioBuffer; rate: number; buffer: AudioBuffer } | null = null;
   private isLooping: boolean = false;
   private loopSelection: AudioSelection | null = null;
   
@@ -104,6 +107,7 @@ export class AudioEngine {
   public async loadBuffer(buffer: AudioBuffer, historyDescription?: string): Promise<void> {
     this.stop();
     this.currentBuffer = buffer;
+    this.stretchedCache = null;
     this.startOffset = 0;
     
     this.history.reset(buffer, historyDescription || 'Loaded Audio');
@@ -115,6 +119,7 @@ export class AudioEngine {
   public clearBuffer(): void {
     this.stop();
     this.currentBuffer = null;
+    this.stretchedCache = null;
     this.history = new HistoryManager(25);
     this.notifyBufferListeners();
     this.notifyTimeListeners(0);
@@ -123,6 +128,7 @@ export class AudioEngine {
   public setBufferDirectly(buffer: AudioBuffer, description: string): void {
     this.stop();
     this.currentBuffer = buffer;
+    this.stretchedCache = null;
     this.history.push(description, buffer);
     this.notifyBufferListeners();
   }
@@ -132,6 +138,7 @@ export class AudioEngine {
     if (result) {
       this.stop();
       this.currentBuffer = result.buffer;
+      this.stretchedCache = null;
       this.notifyBufferListeners();
       return { undoneDescription: result.undoneDescription };
     }
@@ -143,6 +150,7 @@ export class AudioEngine {
     if (result) {
       this.stop();
       this.currentBuffer = result.buffer;
+      this.stretchedCache = null;
       this.notifyBufferListeners();
       return { redoneDescription: result.redoneDescription };
     }
@@ -178,6 +186,33 @@ export class AudioEngine {
     return this.startOffset;
   }
 
+  private getPlaybackBuffer(): { buffer: AudioBuffer; effectiveRate: number; isStretched: boolean } {
+    if (!this.currentBuffer) {
+      throw new Error('No buffer loaded');
+    }
+    const isStandardRate = Math.abs(this.playbackRate - 1.0) < 0.005;
+    if (isStandardRate || !this.keepPitch) {
+      return { buffer: this.currentBuffer, effectiveRate: this.playbackRate, isStretched: false };
+    }
+
+    if (
+      this.stretchedCache &&
+      this.stretchedCache.source === this.currentBuffer &&
+      Math.abs(this.stretchedCache.rate - this.playbackRate) < 0.005
+    ) {
+      return { buffer: this.stretchedCache.buffer, effectiveRate: 1.0, isStretched: true };
+    }
+
+    const ctx = this.getContext();
+    const stretched = timeStretchBuffer(ctx, this.currentBuffer, this.playbackRate, true);
+    this.stretchedCache = {
+      source: this.currentBuffer,
+      rate: this.playbackRate,
+      buffer: stretched,
+    };
+    return { buffer: stretched, effectiveRate: 1.0, isStretched: true };
+  }
+
   public play(fromTime?: number, selection?: AudioSelection): void {
     if (!this.currentBuffer) return;
     const ctx = this.getContext();
@@ -203,32 +238,37 @@ export class AudioEngine {
     this.startOffset = offset;
     this.startTime = ctx.currentTime;
 
+    const { buffer: activeBuffer, effectiveRate, isStretched } = this.getPlaybackBuffer();
+
     this.sourceNode = ctx.createBufferSource();
-    this.sourceNode.buffer = this.currentBuffer;
-    this.sourceNode.playbackRate.value = this.playbackRate;
+    this.sourceNode.buffer = activeBuffer;
+    this.sourceNode.playbackRate.value = effectiveRate;
 
     if (this.gainNode) {
       this.sourceNode.connect(this.gainNode);
     }
 
+    const bufferOffset = isStretched ? (offset / this.playbackRate) : offset;
+
     if (selection) {
-      const duration = selection.end - offset;
+      const origDuration = selection.end - offset;
+      const playDuration = isStretched ? (origDuration / this.playbackRate) : origDuration;
       if (this.isLooping) {
         this.sourceNode.loop = true;
-        this.sourceNode.loopStart = selection.start;
-        this.sourceNode.loopEnd = selection.end;
-        this.sourceNode.start(0, offset);
+        this.sourceNode.loopStart = isStretched ? (selection.start / this.playbackRate) : selection.start;
+        this.sourceNode.loopEnd = isStretched ? (selection.end / this.playbackRate) : selection.end;
+        this.sourceNode.start(0, bufferOffset);
       } else {
-        this.sourceNode.start(0, offset, Math.max(0, duration));
+        this.sourceNode.start(0, bufferOffset, Math.max(0, playDuration));
       }
     } else {
       if (this.isLooping) {
         this.sourceNode.loop = true;
         this.sourceNode.loopStart = 0;
-        this.sourceNode.loopEnd = this.currentBuffer.duration;
-        this.sourceNode.start(0, offset);
+        this.sourceNode.loopEnd = activeBuffer.duration;
+        this.sourceNode.start(0, bufferOffset);
       } else {
-        this.sourceNode.start(0, offset);
+        this.sourceNode.start(0, bufferOffset);
       }
     }
 
@@ -280,15 +320,37 @@ export class AudioEngine {
   }
 
   public setPlaybackRate(rate: number): void {
+    const clamped = Math.max(0.25, Math.min(4.0, rate));
+    if (Math.abs(this.playbackRate - clamped) < 0.001) return;
+
     if (this.playState === 'playing' && this.ctx) {
-      // Snapshot the current position using the old rate before updating
-      this.startOffset = this.getCurrentTime();
-      this.startTime = this.ctx.currentTime;
+      const curTime = this.getCurrentTime();
+      this.playbackRate = clamped;
+      if (this.keepPitch) {
+        this.play(curTime, this.loopSelection || undefined);
+      } else {
+        this.startOffset = curTime;
+        this.startTime = this.ctx.currentTime;
+        if (this.sourceNode) {
+          this.sourceNode.playbackRate.setValueAtTime(this.playbackRate, this.ctx.currentTime);
+        }
+      }
+    } else {
+      this.playbackRate = clamped;
     }
-    this.playbackRate = Math.max(0.25, Math.min(4.0, rate));
-    if (this.sourceNode && this.playState === 'playing') {
-      this.sourceNode.playbackRate.setValueAtTime(this.playbackRate, this.getContext().currentTime);
+  }
+
+  public setKeepPitch(keep: boolean): void {
+    if (this.keepPitch === keep) return;
+    this.keepPitch = keep;
+    if (this.playState === 'playing') {
+      const curTime = this.getCurrentTime();
+      this.play(curTime, this.loopSelection || undefined);
     }
+  }
+
+  public getKeepPitch(): boolean {
+    return this.keepPitch;
   }
 
   public setLoop(loop: boolean, selection?: AudioSelection): void {
@@ -297,8 +359,9 @@ export class AudioEngine {
     if (this.sourceNode && this.playState === 'playing') {
       this.sourceNode.loop = loop;
       if (selection) {
-        this.sourceNode.loopStart = selection.start;
-        this.sourceNode.loopEnd = selection.end;
+        const isStretched = this.keepPitch && Math.abs(this.playbackRate - 1.0) >= 0.005;
+        this.sourceNode.loopStart = isStretched ? (selection.start / this.playbackRate) : selection.start;
+        this.sourceNode.loopEnd = isStretched ? (selection.end / this.playbackRate) : selection.end;
       }
     }
   }

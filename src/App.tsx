@@ -92,6 +92,7 @@ export function AudioStudioApp() {
   const [isLooping, setIsLooping] = useState<boolean>(false);
   const [volume, setVolume] = useState<number>(1.0);
   const [playbackRate, setPlaybackRate] = useState<number>(1.0);
+  const [keepPitch, setKeepPitch] = useState<boolean>(true);
   const [timeFormat, setTimeFormat] = useState<TimeFormat>('hms');
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
@@ -552,6 +553,35 @@ export function AudioStudioApp() {
     }
   }, [showToast]);
 
+  const handleKeepPitchChange = useCallback((keep: boolean) => {
+    setKeepPitch(keep);
+    audioEngine.setKeepPitch(keep);
+    showToast(`Speed transform: ${keep ? 'Keep pitch (time-stretch)' : 'Shift pitch (resample)'}`, 'info');
+  }, [showToast]);
+
+  const handleApplySpeedTransform = useCallback((rate: number, keep: boolean) => {
+    if (!currentBuffer) return;
+    const ctx = audioEngine.getContext();
+    const cleanRate = Math.round(rate * 100) / 100;
+    if (Math.abs(cleanRate - 1.0) < 0.005) return;
+
+    if (selection && selection.end > selection.start) {
+      // Apply speed transform to selected region
+      const selBuffer = BufferUtils.sliceBuffer(ctx, currentBuffer, selection.start, selection.end);
+      const stretchedSel = BufferUtils.timeStretchBuffer(ctx, selBuffer, cleanRate, keep);
+      const newBuffer = BufferUtils.replaceBufferRegion(ctx, currentBuffer, stretchedSel, selection.start, selection.end);
+      const newEnd = selection.start + stretchedSel.duration;
+      audioEngine.setBufferDirectly(newBuffer, `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'}) on selection`);
+      setSelection({ start: selection.start, end: newEnd });
+      showToast(`Applied ${cleanRate}x speed transform (${keep ? 'Keep pitch' : 'Shift pitch'}) to selection`, 'success');
+    } else {
+      // Apply to full buffer
+      const newBuffer = BufferUtils.timeStretchBuffer(ctx, currentBuffer, cleanRate, keep);
+      audioEngine.setBufferDirectly(newBuffer, `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'})`);
+      showToast(`Applied ${cleanRate}x speed transform (${keep ? 'Keep pitch' : 'Shift pitch'}) to track`, 'success');
+    }
+  }, [currentBuffer, selection, showToast]);
+
   const handleSilence = useCallback(() => {
     if (!currentBuffer || !selection || selection.end <= selection.start) return;
     const ctx = audioEngine.getContext();
@@ -810,11 +840,12 @@ export function AudioStudioApp() {
     eq: EQSettings,
     filters: FilterSettings,
     comp: CompressorSettings,
-    speed: number
+    speed: number,
+    keepPitch: boolean = true
   ) => {
     if (!currentBuffer) return;
-    const newBuffer = await EffectsChain.renderEffects(currentBuffer, eq, filters, comp, speed);
-    audioEngine.setBufferDirectly(newBuffer, 'Applied EQ & DSP Effects');
+    const newBuffer = await EffectsChain.renderEffects(currentBuffer, eq, filters, comp, speed, keepPitch);
+    audioEngine.setBufferDirectly(newBuffer, `Applied EQ & DSP Effects (${speed}x speed, ${keepPitch ? 'Keep pitch' : 'Resample'})`);
     showToast('Effects applied', 'success');
   }, [currentBuffer, showToast]);
 
@@ -1510,8 +1541,11 @@ export function AudioStudioApp() {
             redoDescription={redoDescription}
             volume={volume}
             playbackRate={playbackRate}
+            keepPitch={keepPitch}
             sampleRate={currentBuffer?.sampleRate || 44100}
             timeFormat={timeFormat}
+            hasBuffer={Boolean(currentBuffer)}
+            hasSelection={Boolean(selection && selection.end > selection.start)}
             onPlay={handlePlay}
             onPause={handlePause}
             onStop={handleStop}
@@ -1523,6 +1557,8 @@ export function AudioStudioApp() {
             onZoomFit={handleZoomFit}
             onVolumeChange={handleVolumeChange}
             onPlaybackRateChange={handlePlaybackRateChange}
+            onKeepPitchChange={handleKeepPitchChange}
+            onApplySpeedTransform={handleApplySpeedTransform}
             onToggleTimeFormat={handleToggleTimeFormat}
           />
         </main>

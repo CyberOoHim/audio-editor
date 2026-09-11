@@ -540,3 +540,126 @@ export function getDecimatedPeaks(buffer: AudioBuffer, numBuckets: number = 8192
   return result;
 }
 
+/**
+ * Time-stretches an AudioBuffer at a specified speed multiplier.
+ * @param ctx BaseAudioContext
+ * @param source AudioBuffer to transform
+ * @param speed Speed multiplier (e.g. 0.25x to 2.0x)
+ * @param keepPitch When true (default), pitch is preserved (time-stretch). When false, pitch shifts with speed (resampling/tape/vinyl).
+ * @param startSec Optional start time in seconds
+ * @param endSec Optional end time in seconds
+ */
+export function timeStretchBuffer(
+  ctx: BaseAudioContext,
+  source: AudioBuffer,
+  speed: number,
+  keepPitch: boolean = true,
+  startSec?: number,
+  endSec?: number
+): AudioBuffer {
+  const safeSpeed = Math.max(0.1, Math.min(10.0, speed));
+  const isNoOp = Math.abs(safeSpeed - 1.0) < 0.005;
+
+  // Handle region selection
+  if (startSec !== undefined && endSec !== undefined && (endSec - startSec) < source.duration) {
+    const minSec = Math.max(0, Math.min(startSec, endSec));
+    const maxSec = Math.min(source.duration, Math.max(startSec, endSec));
+    if (maxSec - minSec <= 0.001 || isNoOp) {
+      return cloneBuffer(ctx, source);
+    }
+    const region = sliceBuffer(ctx, source, minSec, maxSec);
+    const stretchedRegion = timeStretchBuffer(ctx, region, safeSpeed, keepPitch);
+    return replaceBufferRegion(ctx, source, stretchedRegion, minSec, maxSec);
+  }
+
+  if (isNoOp) {
+    return cloneBuffer(ctx, source);
+  }
+
+  const numChannels = source.numberOfChannels;
+  const inLen = source.length;
+  const sampleRate = source.sampleRate;
+  const outLen = Math.max(1, Math.floor(inLen / safeSpeed));
+  const target = ctx.createBuffer(numChannels, outLen, sampleRate);
+
+  if (!keepPitch) {
+    // Linear interpolation resampling (pitch changes with speed)
+    for (let c = 0; c < numChannels; c++) {
+      const src = source.getChannelData(c);
+      const dst = target.getChannelData(c);
+      for (let i = 0; i < outLen; i++) {
+        const srcPos = i * safeSpeed;
+        const idx = Math.floor(srcPos);
+        const frac = srcPos - idx;
+        const s0 = idx < inLen ? src[idx] : src[inLen - 1];
+        const s1 = (idx + 1) < inLen ? src[idx + 1] : src[inLen - 1];
+        dst[i] = s0 + frac * (s1 - s0);
+      }
+    }
+    return target;
+  }
+
+  // WSOLA Time-Stretching (preserves pitch)
+  const N = sampleRate > 48000 ? 2048 : 1024;
+  const Hs = N >> 1; // 50% overlap synthesis hop
+  const searchRange = Math.min(256, Hs);
+
+  // Precomputed Hann window
+  const win = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    win[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / N));
+  }
+
+  const ch0 = source.getChannelData(0);
+
+  // First frame copy
+  let prevCandidate = 0;
+  for (let c = 0; c < numChannels; c++) {
+    const src = source.getChannelData(c);
+    const dst = target.getChannelData(c);
+    const initialLen = Math.min(N, inLen, outLen);
+    for (let i = 0; i < initialLen; i++) {
+      dst[i] = src[i] * win[i];
+    }
+  }
+
+  let synPos = Hs;
+
+  while (synPos + N <= outLen) {
+    const targetAna = Math.round(synPos * safeSpeed);
+    const natCont = prevCandidate + Hs;
+
+    const minSearch = Math.max(0, targetAna - searchRange);
+    const maxSearch = Math.min(inLen - N, targetAna + searchRange);
+
+    let bestCand = Math.max(0, Math.min(inLen - N, targetAna));
+    let maxCorr = -Infinity;
+
+    if (natCont + Hs <= inLen && minSearch <= maxSearch) {
+      for (let cand = minSearch; cand <= maxSearch; cand += 2) {
+        let corr = 0;
+        for (let k = 0; k < Hs; k += 4) {
+          corr += ch0[cand + k] * ch0[natCont + k];
+        }
+        if (corr > maxCorr) {
+          maxCorr = corr;
+          bestCand = cand;
+        }
+      }
+    }
+
+    for (let c = 0; c < numChannels; c++) {
+      const src = source.getChannelData(c);
+      const dst = target.getChannelData(c);
+      for (let i = 0; i < N; i++) {
+        dst[synPos + i] += src[bestCand + i] * win[i];
+      }
+    }
+
+    prevCandidate = bestCand;
+    synPos += Hs;
+  }
+
+  return target;
+}
+

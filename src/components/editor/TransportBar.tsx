@@ -25,8 +25,11 @@ export interface TransportBarProps {
   redoDescription?: string;
   volume: number;
   playbackRate?: number;
+  keepPitch?: boolean;
   sampleRate?: number;
   timeFormat?: TimeFormat;
+  hasBuffer?: boolean;
+  hasSelection?: boolean;
   onPlay: () => void;
   onPause: () => void;
   onStop: () => void;
@@ -38,6 +41,8 @@ export interface TransportBarProps {
   onZoomFit: () => void;
   onVolumeChange: (val: number) => void;
   onPlaybackRateChange?: (rate: number, showToastFeedback?: boolean) => void;
+  onKeepPitchChange?: (keepPitch: boolean) => void;
+  onApplySpeedTransform?: (rate: number, keepPitch: boolean) => void;
   onToggleTimeFormat?: () => void;
 }
 
@@ -51,8 +56,11 @@ export const TransportBar: React.FC<TransportBarProps> = React.memo(({
   redoDescription,
   volume,
   playbackRate = 1.0,
+  keepPitch = true,
   sampleRate = 44100,
   timeFormat = 'hms',
+  hasBuffer = false,
+  hasSelection = false,
   onPlay,
   onPause,
   onStop,
@@ -64,6 +72,8 @@ export const TransportBar: React.FC<TransportBarProps> = React.memo(({
   onZoomFit,
   onVolumeChange,
   onPlaybackRateChange,
+  onKeepPitchChange,
+  onApplySpeedTransform,
   onToggleTimeFormat
 }) => {
   const formatTime = (sec: number): string => {
@@ -157,7 +167,12 @@ export const TransportBar: React.FC<TransportBarProps> = React.memo(({
           {onPlaybackRateChange && (
             <SpeedControl
               playbackRate={playbackRate}
+              keepPitch={keepPitch}
               onPlaybackRateChange={onPlaybackRateChange}
+              onKeepPitchChange={onKeepPitchChange}
+              onApplySpeedTransform={onApplySpeedTransform}
+              hasBuffer={hasBuffer}
+              hasSelection={hasSelection}
             />
           )}
 
@@ -215,7 +230,12 @@ export const TransportBar: React.FC<TransportBarProps> = React.memo(({
             {onPlaybackRateChange && (
               <SpeedControl
                 playbackRate={playbackRate}
+                keepPitch={keepPitch}
                 onPlaybackRateChange={onPlaybackRateChange}
+                onKeepPitchChange={onKeepPitchChange}
+                onApplySpeedTransform={onApplySpeedTransform}
+                hasBuffer={hasBuffer}
+                hasSelection={hasSelection}
                 isMobile
               />
             )}

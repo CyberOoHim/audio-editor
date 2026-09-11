@@ -998,6 +998,107 @@
   box-shadow: 0 0 6px var(--accent-cyan-glow);
 }
 
+.speed-pitch-control-row {
+  margin-top: 2px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 7px 9px;
+  transition: all 0.15s ease;
+}
+
+.speed-pitch-control-row:hover {
+  border-color: var(--border-medium);
+}
+
+.speed-pitch-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  width: 100%;
+}
+
+.speed-pitch-checkbox {
+  margin-top: 2px;
+  accent-color: var(--accent-cyan);
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.speed-pitch-text-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.speed-pitch-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.speed-pitch-title {
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.speed-pitch-badge {
+  font-size: calc(8.5px * var(--ui-font-scale, 1));
+  font-family: var(--font-mono);
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: var(--radius-xs);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.speed-pitch-badge.active {
+  background: var(--accent-cyan-dim);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+}
+
+.speed-pitch-desc {
+  font-size: calc(9.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  line-height: 1.25;
+}
+
+.speed-apply-wrap {
+  margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+}
+
+.speed-apply-btn {
+  width: 100%;
+  height: 28px;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-cyan);
+  color: #0d131f;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.speed-apply-btn:hover {
+  background: #26f2ff;
+  box-shadow: 0 0 10px var(--accent-cyan-glow);
+}
+
 .transport-desktop-wrap {
   display: flex;
   align-items: center;
