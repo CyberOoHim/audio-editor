@@ -8,6 +8,8 @@ import {
   estimatePcmBytes,
   yieldToMain
 } from './memoryBudget';
+import { renderOfflineChunked } from './offlineRender';
+import { runWorkerSpeedTransform } from './workers/speedWorkerClient';
 
 export function createEmptyBuffer(
   ctx: BaseAudioContext,
@@ -902,6 +904,185 @@ export async function invertPhaseInPlace(
  * @param startSec Optional start time in seconds
  * @param endSec Optional end time in seconds
  */
+/**
+ * In-thread hierarchical WSOLA algorithm.
+ * Uses coarse-to-fine candidate search to reduce floating-point correlation math by ~70%,
+ * with hoisted channel references for high JIT execution speed.
+ */
+function processWsolaHierarchical(
+  source: AudioBuffer,
+  target: AudioBuffer,
+  safeSpeed: number,
+  yieldFn?: () => Promise<void>,
+  onProgress?: (progress: number) => void
+): Promise<void> | void {
+  const numChannels = source.numberOfChannels;
+  const inLen = source.length;
+  const outLen = target.length;
+  const sampleRate = source.sampleRate;
+
+  const N = sampleRate > 48000 ? 2048 : 1024;
+  const Hs = N >> 1; // 50% overlap synthesis hop
+  const searchRange = Math.min(256, Hs);
+
+  // Precomputed Hann window
+  const win = new Float32Array(N);
+  const twoPiOverN = (2 * Math.PI) / N;
+  for (let i = 0; i < N; i++) {
+    win[i] = 0.5 * (1 - Math.cos(twoPiOverN * i));
+  }
+
+  const ch0 = source.getChannelData(0);
+  const dst0 = target.getChannelData(0);
+  const isStereo = numChannels > 1;
+  const ch1 = isStereo ? source.getChannelData(1) : null;
+  const dst1 = isStereo ? target.getChannelData(1) : null;
+
+  // First frame copy
+  let prevCandidate = 0;
+  const initialLen = Math.min(N, inLen, outLen);
+  for (let i = 0; i < initialLen; i++) {
+    const w = win[i];
+    dst0[i] = ch0[i] * w;
+    if (isStereo && ch1 && dst1) {
+      dst1[i] = ch1[i] * w;
+    }
+  }
+
+  let synPos = Hs;
+  let hops = 0;
+  const totalHops = Math.max(1, Math.floor((outLen - N) / Hs));
+  const reportHopInterval = Math.max(16, Math.floor(totalHops / 20));
+
+  const COARSE_STEP = 16;
+  const FINE_RANGE = 16;
+  const FINE_STEP = 2;
+
+  if (!yieldFn) {
+    // Synchronous hot path (used for preview / playback caching)
+    while (synPos + N <= outLen) {
+      const targetAna = Math.round(synPos * safeSpeed);
+      const natCont = prevCandidate + Hs;
+
+      const minSearch = Math.max(0, targetAna - searchRange);
+      const maxSearch = Math.min(inLen - N, targetAna + searchRange);
+
+      let bestCand = Math.max(0, Math.min(inLen - N, targetAna));
+
+      if (natCont + Hs <= inLen && minSearch <= maxSearch) {
+        let coarseBest = bestCand;
+        let coarseMaxCorr = -Infinity;
+
+        for (let cand = minSearch; cand <= maxSearch; cand += COARSE_STEP) {
+          let corr = 0;
+          for (let k = 0; k < Hs; k += 16) {
+            corr += ch0[cand + k] * ch0[natCont + k];
+          }
+          if (corr > coarseMaxCorr) {
+            coarseMaxCorr = corr;
+            coarseBest = cand;
+          }
+        }
+
+        const fineStart = Math.max(minSearch, coarseBest - FINE_RANGE);
+        const fineEnd = Math.min(maxSearch, coarseBest + FINE_RANGE);
+
+        bestCand = coarseBest;
+        let fineMaxCorr = -Infinity;
+
+        for (let cand = fineStart; cand <= fineEnd; cand += FINE_STEP) {
+          let corr = 0;
+          for (let k = 0; k < Hs; k += 8) {
+            corr += ch0[cand + k] * ch0[natCont + k];
+          }
+          if (corr > fineMaxCorr) {
+            fineMaxCorr = corr;
+            bestCand = cand;
+          }
+        }
+      }
+
+      for (let i = 0; i < N; i++) {
+        const w = win[i];
+        dst0[synPos + i] += ch0[bestCand + i] * w;
+        if (isStereo && ch1 && dst1) {
+          dst1[synPos + i] += ch1[bestCand + i] * w;
+        }
+      }
+
+      prevCandidate = bestCand;
+      synPos += Hs;
+    }
+    return;
+  }
+
+  // Asynchronous hot path with cooperative yielding
+  return (async () => {
+    while (synPos + N <= outLen) {
+      const targetAna = Math.round(synPos * safeSpeed);
+      const natCont = prevCandidate + Hs;
+
+      const minSearch = Math.max(0, targetAna - searchRange);
+      const maxSearch = Math.min(inLen - N, targetAna + searchRange);
+
+      let bestCand = Math.max(0, Math.min(inLen - N, targetAna));
+
+      if (natCont + Hs <= inLen && minSearch <= maxSearch) {
+        let coarseBest = bestCand;
+        let coarseMaxCorr = -Infinity;
+
+        for (let cand = minSearch; cand <= maxSearch; cand += COARSE_STEP) {
+          let corr = 0;
+          for (let k = 0; k < Hs; k += 16) {
+            corr += ch0[cand + k] * ch0[natCont + k];
+          }
+          if (corr > coarseMaxCorr) {
+            coarseMaxCorr = corr;
+            coarseBest = cand;
+          }
+        }
+
+        const fineStart = Math.max(minSearch, coarseBest - FINE_RANGE);
+        const fineEnd = Math.min(maxSearch, coarseBest + FINE_RANGE);
+
+        bestCand = coarseBest;
+        let fineMaxCorr = -Infinity;
+
+        for (let cand = fineStart; cand <= fineEnd; cand += FINE_STEP) {
+          let corr = 0;
+          for (let k = 0; k < Hs; k += 8) {
+            corr += ch0[cand + k] * ch0[natCont + k];
+          }
+          if (corr > fineMaxCorr) {
+            fineMaxCorr = corr;
+            bestCand = cand;
+          }
+        }
+      }
+
+      for (let i = 0; i < N; i++) {
+        const w = win[i];
+        dst0[synPos + i] += ch0[bestCand + i] * w;
+        if (isStereo && ch1 && dst1) {
+          dst1[synPos + i] += ch1[bestCand + i] * w;
+        }
+      }
+
+      prevCandidate = bestCand;
+      synPos += Hs;
+      hops++;
+
+      if (hops % reportHopInterval === 0) {
+        onProgress?.(Math.min(0.99, hops / totalHops));
+      }
+      if ((hops & 63) === 0) {
+        await yieldFn();
+      }
+    }
+    onProgress?.(1);
+  })();
+}
+
 export function timeStretchBuffer(
   ctx: BaseAudioContext,
   source: AudioBuffer,
@@ -952,78 +1133,16 @@ export function timeStretchBuffer(
     return target;
   }
 
-  // WSOLA Time-Stretching (preserves pitch)
-  const N = sampleRate > 48000 ? 2048 : 1024;
-  const Hs = N >> 1; // 50% overlap synthesis hop
-  const searchRange = Math.min(256, Hs);
-
-  // Precomputed Hann window
-  const win = new Float32Array(N);
-  for (let i = 0; i < N; i++) {
-    win[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / N));
-  }
-
-  const ch0 = source.getChannelData(0);
-  const srcChannels: Float32Array[] = [];
-  const dstChannels: Float32Array[] = [];
-  for (let c = 0; c < numChannels; c++) {
-    srcChannels.push(source.getChannelData(c));
-    dstChannels.push(target.getChannelData(c));
-  }
-
-  // First frame copy
-  let prevCandidate = 0;
-  const initialLen = Math.min(N, inLen, outLen);
-  for (let c = 0; c < numChannels; c++) {
-    const src = srcChannels[c];
-    const dst = dstChannels[c];
-    for (let i = 0; i < initialLen; i++) {
-      dst[i] = src[i] * win[i];
-    }
-  }
-
-  let synPos = Hs;
-
-  while (synPos + N <= outLen) {
-    const targetAna = Math.round(synPos * safeSpeed);
-    const natCont = prevCandidate + Hs;
-
-    const minSearch = Math.max(0, targetAna - searchRange);
-    const maxSearch = Math.min(inLen - N, targetAna + searchRange);
-
-    let bestCand = Math.max(0, Math.min(inLen - N, targetAna));
-    let maxCorr = -Infinity;
-
-    if (natCont + Hs <= inLen && minSearch <= maxSearch) {
-      for (let cand = minSearch; cand <= maxSearch; cand += 4) {
-        let corr = 0;
-        for (let k = 0; k < Hs; k += 8) {
-          corr += ch0[cand + k] * ch0[natCont + k];
-        }
-        if (corr > maxCorr) {
-          maxCorr = corr;
-          bestCand = cand;
-        }
-      }
-    }
-
-    for (let c = 0; c < numChannels; c++) {
-      const src = srcChannels[c];
-      const dst = dstChannels[c];
-      for (let i = 0; i < N; i++) {
-        dst[synPos + i] += src[bestCand + i] * win[i];
-      }
-    }
-
-    prevCandidate = bestCand;
-    synPos += Hs;
-  }
-
+  processWsolaHierarchical(source, target, safeSpeed);
   return target;
 }
 
 /**
- * Cooperative WSOLA / resample so hour-long files cannot freeze or watchdog-kill Safari.
+ * High-performance, anti-crash asynchronous speed transform.
+ *
+ * Automatically offloads WSOLA time-stretching to a dedicated Web Worker (with zero-copy
+ * ArrayBuffers), uses native C++ hardware sinc-resampling for pitch-shifted playback,
+ * and maintains iPad Safari memory budget guarantees.
  */
 export async function timeStretchBufferAsync(
   ctx: BaseAudioContext,
@@ -1031,7 +1150,8 @@ export async function timeStretchBufferAsync(
   speed: number,
   keepPitch: boolean = true,
   startSec?: number,
-  endSec?: number
+  endSec?: number,
+  onProgress?: (progress: number) => void
 ): Promise<AudioBuffer> {
   const safeSpeed = Math.max(0.1, Math.min(10.0, speed));
   const isNoOp = Math.abs(safeSpeed - 1.0) < 0.005;
@@ -1043,7 +1163,7 @@ export async function timeStretchBufferAsync(
       return cloneBufferAsync(ctx, source);
     }
     const region = await sliceBufferAsync(ctx, source, minSec, maxSec);
-    const stretchedRegion = await timeStretchBufferAsync(ctx, region, safeSpeed, keepPitch);
+    const stretchedRegion = await timeStretchBufferAsync(ctx, region, safeSpeed, keepPitch, undefined, undefined, onProgress);
     return replaceBufferRegionAsync(ctx, source, stretchedRegion, minSec, maxSec);
   }
 
@@ -1056,93 +1176,54 @@ export async function timeStretchBufferAsync(
   const sampleRate = source.sampleRate;
   const outLen = Math.max(1, Math.floor(inLen / safeSpeed));
   assertCanCopyEdit(estimateBufferBytes(source), estimatePcmBytes(outLen, numChannels), 'Speed transform');
-  const target = createBufferSafe(ctx, numChannels, outLen, sampleRate);
-  const maybeYield = createYieldScheduler();
 
   if (!keepPitch) {
-    for (let c = 0; c < numChannels; c++) {
-      const src = source.getChannelData(c);
-      const dst = target.getChannelData(c);
-      for (let i = 0; i < outLen; i++) {
-        const srcPos = i * safeSpeed;
-        const idx = Math.floor(srcPos);
-        const frac = srcPos - idx;
-        const s0 = idx < inLen ? src[idx] : src[inLen - 1];
-        const s1 = (idx + 1) < inLen ? src[idx + 1] : src[inLen - 1];
-        dst[i] = s0 + frac * (s1 - s0);
-        if ((i & 0xffff) === 0) await maybeYield();
+    // Hardware-accelerated C++ resampler via Web Audio OfflineAudioContext in safe memory chunks
+    try {
+      return await renderOfflineChunked(
+        source,
+        (_offlineCtx, sourceNode) => {
+          sourceNode.connect(_offlineCtx.destination);
+        },
+        {
+          playbackRate: safeSpeed,
+          onProgress
+        }
+      );
+    } catch (err) {
+      console.warn('Hardware chunked resample failed, using fallback:', err);
+      const target = createBufferSafe(ctx, numChannels, outLen, sampleRate);
+      const maybeYield = createYieldScheduler();
+      for (let c = 0; c < numChannels; c++) {
+        const src = source.getChannelData(c);
+        const dst = target.getChannelData(c);
+        for (let i = 0; i < outLen; i++) {
+          const srcPos = i * safeSpeed;
+          const idx = Math.floor(srcPos);
+          const frac = srcPos - idx;
+          const s0 = idx < inLen ? src[idx] : src[inLen - 1];
+          const s1 = (idx + 1) < inLen ? src[idx + 1] : src[inLen - 1];
+          dst[i] = s0 + frac * (s1 - s0);
+          if ((i & 0xffff) === 0) await maybeYield();
+        }
       }
+      return target;
     }
+  }
+
+  // Pitch-Preserved Time Stretch (WSOLA): Offload to dedicated Web Worker
+  try {
+    return await runWorkerSpeedTransform(ctx, source, {
+      speed: safeSpeed,
+      keepPitch: true,
+      onProgress
+    });
+  } catch (workerErr) {
+    console.warn('Web Worker speed transform unavailable, running optimized in-thread fallback:', workerErr);
+    const target = createBufferSafe(ctx, numChannels, outLen, sampleRate);
+    const maybeYield = createYieldScheduler();
+    await processWsolaHierarchical(source, target, safeSpeed, maybeYield, onProgress);
     return target;
   }
-
-  const N = sampleRate > 48000 ? 2048 : 1024;
-  const Hs = N >> 1;
-  const searchRange = Math.min(256, Hs);
-
-  const win = new Float32Array(N);
-  for (let i = 0; i < N; i++) {
-    win[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / N));
-  }
-
-  const ch0 = source.getChannelData(0);
-  const srcChannels: Float32Array[] = [];
-  const dstChannels: Float32Array[] = [];
-  for (let c = 0; c < numChannels; c++) {
-    srcChannels.push(source.getChannelData(c));
-    dstChannels.push(target.getChannelData(c));
-  }
-
-  let prevCandidate = 0;
-  const initialLen = Math.min(N, inLen, outLen);
-  for (let c = 0; c < numChannels; c++) {
-    const src = srcChannels[c];
-    const dst = dstChannels[c];
-    for (let i = 0; i < initialLen; i++) {
-      dst[i] = src[i] * win[i];
-    }
-  }
-
-  let synPos = Hs;
-  let hops = 0;
-
-  while (synPos + N <= outLen) {
-    const targetAna = Math.round(synPos * safeSpeed);
-    const natCont = prevCandidate + Hs;
-
-    const minSearch = Math.max(0, targetAna - searchRange);
-    const maxSearch = Math.min(inLen - N, targetAna + searchRange);
-
-    let bestCand = Math.max(0, Math.min(inLen - N, targetAna));
-    let maxCorr = -Infinity;
-
-    if (natCont + Hs <= inLen && minSearch <= maxSearch) {
-      for (let cand = minSearch; cand <= maxSearch; cand += 4) {
-        let corr = 0;
-        for (let k = 0; k < Hs; k += 8) {
-          corr += ch0[cand + k] * ch0[natCont + k];
-        }
-        if (corr > maxCorr) {
-          maxCorr = corr;
-          bestCand = cand;
-        }
-      }
-    }
-
-    for (let c = 0; c < numChannels; c++) {
-      const src = srcChannels[c];
-      const dst = dstChannels[c];
-      for (let i = 0; i < N; i++) {
-        dst[synPos + i] += src[bestCand + i] * win[i];
-      }
-    }
-
-    prevCandidate = bestCand;
-    synPos += Hs;
-    hops++;
-    if ((hops & 15) === 0) await maybeYield();
-  }
-
-  return target;
 }
 

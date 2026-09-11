@@ -686,17 +686,53 @@ export function AudioStudioApp() {
 
     void runEdit('Applying speed…', async () => {
       const ctx = audioEngine.getContext();
+      const onProgress = (p: number) => {
+        setProcessingLabel(`Applying speed (${Math.round(p * 100)}%)…`);
+      };
+
       if (sel && sel.end > sel.start) {
-        const newBuffer = await BufferUtils.timeStretchBufferAsync(ctx, buf, cleanRate, keep, sel.start, sel.end);
+        const newBuffer = await BufferUtils.timeStretchBufferAsync(
+          ctx,
+          buf,
+          cleanRate,
+          keep,
+          sel.start,
+          sel.end,
+          onProgress
+        );
         const newEnd = sel.start + (sel.end - sel.start) / cleanRate;
         const targetSel = { start: sel.start, end: newEnd };
-        audioEngine.setBufferDirectly(newBuffer, `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'}) on selection`, sel, targetSel);
+        audioEngine.setBufferDirectly(
+          newBuffer,
+          `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'}) on selection`,
+          sel,
+          targetSel
+        );
         setSelection(targetSel);
-        showToast(`Applied ${cleanRate}x speed transform (${keep ? 'Keep pitch' : 'Shift pitch'}) to selection`, 'success');
+        showToast(
+          `Applied ${cleanRate}x speed transform (${keep ? 'Keep pitch' : 'Shift pitch'}) to selection`,
+          'success'
+        );
       } else {
-        const newBuffer = await BufferUtils.timeStretchBufferAsync(ctx, buf, cleanRate, keep);
-        audioEngine.setBufferDirectly(newBuffer, `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'})`, sel, sel);
-        showToast(`Applied ${cleanRate}x speed transform (${keep ? 'Keep pitch' : 'Shift pitch'}) to track`, 'success');
+        const newBuffer = await BufferUtils.timeStretchBufferAsync(
+          ctx,
+          buf,
+          cleanRate,
+          keep,
+          undefined,
+          undefined,
+          onProgress
+        );
+        audioEngine.setBufferDirectly(
+          newBuffer,
+          `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'})`,
+          sel,
+          sel
+        );
+        showToast(
+          `Applied ${cleanRate}x speed transform (${keep ? 'Keep pitch' : 'Shift pitch'}) to track`,
+          'success'
+        );
       }
       setPlaybackRate(1.0);
       audioEngine.setPlaybackRate(1.0);
