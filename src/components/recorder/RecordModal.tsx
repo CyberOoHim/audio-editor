@@ -4,6 +4,7 @@ import { Modal } from '../common/Modal';
 import { Slider } from '../common/Slider';
 import { StudioRecorder, type RecorderMetrics } from '../../audio/Recorder';
 import * as BufferUtils from '../../audio/BufferUtils';
+import { describeLoadLimit, estimateBufferBytes } from '../../audio/memoryBudget';
 import { LiveVisualizer } from './LiveVisualizer';
 import { VuMeter } from './VuMeter';
 import { useToast } from '../common/Toast';
@@ -35,10 +36,15 @@ const getInitialGainBoost = (key: string, defaultVal: number = 0): number => {
   return defaultVal;
 };
 
-const getBoostedBuffer = (buffer: AudioBuffer, gainDb: number): AudioBuffer => {
+const getBoostedBuffer = async (buffer: AudioBuffer, gainDb: number): Promise<AudioBuffer> => {
   if (Math.abs(gainDb) < 0.01) return buffer;
   const OfflineCtxClass = window.OfflineAudioContext || (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext }).webkitOfflineAudioContext;
-  const ctx = new OfflineCtxClass(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+  const ctx = new OfflineCtxClass(1, 1, buffer.sampleRate);
+  if (estimateBufferBytes(buffer) > 8 * 1024 * 1024) {
+    const copy = await BufferUtils.cloneBufferAsync(ctx, buffer);
+    await BufferUtils.applyGainInPlace(copy, gainDb);
+    return copy;
+  }
   return BufferUtils.applyGain(ctx, buffer, gainDb);
 };
 
@@ -99,9 +105,10 @@ export const RecordModal: React.FC<RecordModalProps> = ({
   const bufferPeak = useMemo(() => {
     if (!recordedBuffer || recordedBuffer.length === 0) return 0;
     let peak = 0;
+    const stride = recordedBuffer.length > 48000 ? 32 : 1;
     for (let c = 0; c < recordedBuffer.numberOfChannels; c++) {
       const data = recordedBuffer.getChannelData(c);
-      for (let i = 0; i < data.length; i++) {
+      for (let i = 0; i < data.length; i += stride) {
         const abs = Math.abs(data[i]);
         if (abs > peak) peak = abs;
       }
@@ -119,6 +126,20 @@ export const RecordModal: React.FC<RecordModalProps> = ({
       recorderRef.current.onMetrics((m) => {
         setMetrics(m);
         setDuration(m.duration);
+      });
+      recorderRef.current.onMemoryLimit(() => {
+        const rec = recorderRef.current;
+        if (!rec) return;
+        const buffer = rec.stop();
+        setIsRecording(false);
+        setIsPaused(false);
+        if (buffer) {
+          setRecordedBuffer(buffer);
+          showToast(
+            `Recording stopped at ${buffer.duration.toFixed(0)}s — iPad/Safari memory limit reached to prevent a crash.`,
+            'warning'
+          );
+        }
       });
       setTrackTitle(`Microphone Take ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`);
       setRecordedBuffer(null);
@@ -141,7 +162,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
         recorderRef.current = null;
       }
     };
-  }, [isOpen, stopPreview]);
+  }, [isOpen, stopPreview, showToast]);
 
   const handleGainBoostChange = (val: number) => {
     const rounded = Math.round(val * 10) / 10;
@@ -254,10 +275,10 @@ export const RecordModal: React.FC<RecordModalProps> = ({
     setRecordedBuffer(null);
   };
 
-  const handleFinish = (action: 'editor' | 'library') => {
+  const handleFinish = async (action: 'editor' | 'library') => {
     if (!recordedBuffer) return;
     stopPreview();
-    const finalBuffer = getBoostedBuffer(recordedBuffer, topUpGain);
+    const finalBuffer = await getBoostedBuffer(recordedBuffer, topUpGain);
     onSaveRecording(finalBuffer, trackTitle.trim() || 'New Recording', action);
     onClose();
   };
@@ -599,7 +620,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
             }}
           >
             <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>⚡</span>
-            <span>In-memory 32-bit Float PCM • No hard recording time limit (RAM-governed)</span>
+            <span>In-memory 32-bit Float PCM • Auto-stops at device RAM limit ({describeLoadLimit()})</span>
           </div>
         )}
 

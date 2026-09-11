@@ -4,6 +4,8 @@
  * Safe for 50+ minute 24-bit/32-bit audio files with near-zero memory footprint.
  */
 
+import { resampleBufferChunked } from '../offlineRender';
+
 export interface WavEncoderOptions {
   bitDepth?: 16 | 24 | 32;
   channels?: 1 | 2;
@@ -21,18 +23,13 @@ export async function encodeWav(
 
   let sourceBuffer = buffer;
 
-  // If sample rate or channels change, resample via OfflineAudioContext
   if (targetSampleRate !== buffer.sampleRate || targetChannels !== buffer.numberOfChannels) {
-    const offlineCtx = new OfflineAudioContext(
+    sourceBuffer = await resampleBufferChunked(
+      buffer,
       targetChannels,
-      Math.max(1, Math.ceil(buffer.duration * targetSampleRate)),
-      targetSampleRate
+      targetSampleRate,
+      options.onProgress ? (p) => options.onProgress?.(p * 0.15) : undefined
     );
-    const sourceNode = offlineCtx.createBufferSource();
-    sourceNode.buffer = buffer;
-    sourceNode.connect(offlineCtx.destination);
-    sourceNode.start(0);
-    sourceBuffer = await offlineCtx.startRendering();
   }
 
   const numChannels = targetChannels;
@@ -138,8 +135,8 @@ export async function encodeWav(
 
     chunks.push(chunkArray);
 
-    if (options.onProgress && offset % (CHUNK_FRAMES * 8) === 0) {
-      options.onProgress(Math.min(0.98, offset / numSamples));
+    if (offset % (CHUNK_FRAMES * 2) === 0) {
+      options.onProgress?.(Math.min(0.98, offset / numSamples));
       await new Promise((r) => setTimeout(r, 0));
     }
   }

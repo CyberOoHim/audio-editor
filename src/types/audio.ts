@@ -60,11 +60,17 @@ export interface CompressorSettings {
   release: number;   // sec (0 to 1)
 }
 
+export interface AudioHistoryRegionPatch {
+  startSample: number;
+  channels: Float32Array[];
+}
+
 export interface AudioHistoryEntry {
   id: string;
   description: string;
   timestamp: number;
   buffer: AudioBuffer;
+  regionPatch?: AudioHistoryRegionPatch;
 }
 
 export type ExportFormat =

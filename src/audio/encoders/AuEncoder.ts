@@ -3,6 +3,8 @@
  * Writes directly to chunked Blob streams without allocating monolithic multi-gigabyte ArrayBuffers.
  */
 
+import { resampleBufferChunked } from '../offlineRender';
+
 export interface AuEncoderOptions {
   bitDepth?: 8 | 16 | 24 | 32;
   channels?: 1 | 2;
@@ -23,18 +25,13 @@ export async function encodeAu(
 
   let sourceBuffer = buffer;
 
-  // Resample if necessary
   if (targetSampleRate !== buffer.sampleRate || targetChannels !== buffer.numberOfChannels) {
-    const offlineCtx = new OfflineAudioContext(
+    sourceBuffer = await resampleBufferChunked(
+      buffer,
       targetChannels,
-      Math.max(1, Math.ceil(buffer.duration * targetSampleRate)),
-      targetSampleRate
+      targetSampleRate,
+      options.onProgress ? (p) => options.onProgress?.(p * 0.15) : undefined
     );
-    const sourceNode = offlineCtx.createBufferSource();
-    sourceNode.buffer = buffer;
-    sourceNode.connect(offlineCtx.destination);
-    sourceNode.start(0);
-    sourceBuffer = await offlineCtx.startRendering();
   }
 
   const numChannels = targetChannels;

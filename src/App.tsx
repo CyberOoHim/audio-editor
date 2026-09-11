@@ -12,6 +12,7 @@ import type { FolderItem, AudioFileItem, StorageUsage } from './types/storage';
 import type {
   PlayState,
   AudioSelection,
+  AudioHistoryRegionPatch,
   EQSettings,
   FilterSettings,
   CompressorSettings,
@@ -48,6 +49,14 @@ import * as BufferUtils from './audio/BufferUtils';
 import { EffectsChain } from './audio/EffectsChain';
 import { exportAudio, triggerDownload } from './audio/encoders/ExportManager';
 import { isSupportedAudioFile, SUPPORTED_UPLOAD_ACCEPT } from './audio/audioFormats';
+import {
+  AudioMemoryError,
+  decodeAudioBlob,
+  describeLoadLimit,
+  estimateBufferBytes,
+  getMemoryProfile,
+  yieldForPaint
+} from './audio/memoryBudget';
 
 import { FileManager } from './components/file-manager/FileManager';
 import { WaveformCanvas } from './components/editor/WaveformCanvas';
@@ -177,6 +186,10 @@ export function AudioStudioApp() {
   const [pwaModalOpen, setPwaModalOpen] = useState<boolean>(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isEditorDragOver, setIsEditorDragOver] = useState<boolean>(false);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [processingLabel, setProcessingLabel] = useState<string>('');
+  const [bufferEpoch, setBufferEpoch] = useState<number>(0);
+  const isProcessingRef = useRef(false);
   const headerFileInputRef = useRef<HTMLInputElement>(null);
   const sidebarTouchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
@@ -230,8 +243,7 @@ export function AudioStudioApp() {
       let decodedBuffer = preDecodedBuffer;
       if (!decodedBuffer) {
         const audioCtx = audioEngine.getContext();
-        const arrayBuffer = await fileItem.blob.arrayBuffer();
-        decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        decodedBuffer = await decodeAudioBlob(audioCtx, fileItem.blob);
       }
 
       setActiveFileId(fileItem.id);
@@ -247,13 +259,23 @@ export function AudioStudioApp() {
         setZoom(fitZoom);
       }
 
-      showToast(`Loaded: ${fileItem.name}`, 'success');
+      const pcmBytes = estimateBufferBytes(decodedBuffer);
+      const profile = getMemoryProfile();
+      if (profile.isConstrained && pcmBytes > 80 * 1024 * 1024) {
+        showToast(
+          `Loaded: ${fileItem.name} (${(decodedBuffer.duration / 60).toFixed(1)} min). ${describeLoadLimit(decodedBuffer.numberOfChannels, decodedBuffer.sampleRate)}. Prefer selection edits on this device.`,
+          'info'
+        );
+      } else {
+        showToast(`Loaded: ${fileItem.name}`, 'success');
+      }
       if (window.innerWidth <= 960) {
         setSidebarOpen(false);
       }
     } catch (err) {
       console.error(err);
-      showToast('Failed to decode audio', 'error');
+      const msg = err instanceof AudioMemoryError || err instanceof Error ? err.message : 'Failed to decode audio';
+      showToast(msg, 'error');
     }
   }, [canvasDimensions.width, showToast]);
 
@@ -293,6 +315,7 @@ export function AudioStudioApp() {
     });
 
     const unsubBuffer = audioEngine.onBufferChange((buffer) => {
+      setBufferEpoch(audioEngine.getBufferEpoch());
       setCurrentBuffer(buffer);
       setCanUndo(audioEngine.history.canUndo());
       setCanRedo(audioEngine.history.canRedo());
@@ -395,6 +418,34 @@ export function AudioStudioApp() {
     }
   }, [showToast]);
 
+  const runEdit = useCallback(async (label: string, fn: () => void | Promise<void>) => {
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
+    setIsProcessing(true);
+    setProcessingLabel(label);
+    await yieldForPaint();
+    try {
+      await fn();
+    } catch (err) {
+      console.error(err);
+      const msg = err instanceof Error ? err.message : 'Processing failed';
+      showToast(msg, 'error');
+    } finally {
+      isProcessingRef.current = false;
+      setIsProcessing(false);
+      setProcessingLabel('');
+    }
+  }, [showToast]);
+
+  const commitInPlace = useCallback((description: string, patch: AudioHistoryRegionPatch, successMessage: string) => {
+    const keptUndo = audioEngine.commitInPlaceEdit(description, patch);
+    if (keptUndo) {
+      showToast(successMessage, 'success');
+    } else {
+      showToast(`${successMessage} Undo skipped to save memory on this device.`, 'info');
+    }
+  }, [showToast]);
+
   // Zoom Controls
   const handleZoomIn = useCallback(() => {
     setZoom((prev) => Math.min(5000, prev * 1.4));
@@ -426,26 +477,35 @@ export function AudioStudioApp() {
   // DSP Operations
   const handleTrim = useCallback(() => {
     if (!currentBuffer || !selection || selection.end <= selection.start) return;
-    const ctx = audioEngine.getContext();
-    const newBuffer = BufferUtils.sliceBuffer(ctx, currentBuffer, selection.start, selection.end);
-    audioEngine.setBufferDirectly(newBuffer, `Trim to ${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s`);
-    setSelection(null);
-    setScrollLeft(0);
-    showToast('Trimmed to selection', 'success');
-  }, [currentBuffer, selection, showToast]);
+    const buf = currentBuffer;
+    const sel = selection;
+    void runEdit('Trimming…', async () => {
+      const ctx = audioEngine.getContext();
+      const newBuffer = await BufferUtils.sliceBufferAsync(ctx, buf, sel.start, sel.end);
+      audioEngine.setBufferDirectly(newBuffer, `Trim to ${sel.start.toFixed(2)}s - ${sel.end.toFixed(2)}s`);
+      setSelection(null);
+      setScrollLeft(0);
+      showToast('Trimmed to selection', 'success');
+    });
+  }, [currentBuffer, selection, runEdit, showToast]);
 
   const handleCut = useCallback(() => {
     if (!currentBuffer || !selection || selection.end <= selection.start) return;
-    const ctx = audioEngine.getContext();
-    const newBuffer = BufferUtils.deleteRegion(ctx, currentBuffer, selection.start, selection.end);
-    audioEngine.setBufferDirectly(newBuffer, `Cut ${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s`);
-    setSelection(null);
-    showToast('Selection cut', 'success');
-  }, [currentBuffer, selection, showToast]);
+    const buf = currentBuffer;
+    const sel = selection;
+    void runEdit('Cutting…', async () => {
+      const ctx = audioEngine.getContext();
+      const newBuffer = await BufferUtils.deleteRegionAsync(ctx, buf, sel.start, sel.end);
+      audioEngine.setBufferDirectly(newBuffer, `Cut ${sel.start.toFixed(2)}s - ${sel.end.toFixed(2)}s`);
+      setSelection(null);
+      showToast('Selection cut', 'success');
+    });
+  }, [currentBuffer, selection, runEdit, showToast]);
 
   // Keyboard Shortcuts (Hotkeys)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isProcessingRef.current) return;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
         return;
       }
@@ -575,68 +635,75 @@ export function AudioStudioApp() {
 
   const handleApplySpeedTransform = useCallback((rate: number, keep: boolean) => {
     if (!currentBuffer) return;
-    const ctx = audioEngine.getContext();
+    const buf = currentBuffer;
+    const sel = selection;
     const cleanRate = Math.round(rate * 100) / 100;
     if (Math.abs(cleanRate - 1.0) < 0.005) return;
 
-    if (selection && selection.end > selection.start) {
-      // Apply speed transform to selected region
-      const selBuffer = BufferUtils.sliceBuffer(ctx, currentBuffer, selection.start, selection.end);
-      const stretchedSel = BufferUtils.timeStretchBuffer(ctx, selBuffer, cleanRate, keep);
-      const newBuffer = BufferUtils.replaceBufferRegion(ctx, currentBuffer, stretchedSel, selection.start, selection.end);
-      const newEnd = selection.start + stretchedSel.duration;
-      audioEngine.setBufferDirectly(newBuffer, `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'}) on selection`);
-      setSelection({ start: selection.start, end: newEnd });
-      showToast(`Applied ${cleanRate}x speed transform (${keep ? 'Keep pitch' : 'Shift pitch'}) to selection`, 'success');
-    } else {
-      // Apply to full buffer
-      const newBuffer = BufferUtils.timeStretchBuffer(ctx, currentBuffer, cleanRate, keep);
-      audioEngine.setBufferDirectly(newBuffer, `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'})`);
-      showToast(`Applied ${cleanRate}x speed transform (${keep ? 'Keep pitch' : 'Shift pitch'}) to track`, 'success');
-    }
-  }, [currentBuffer, selection, showToast]);
+    void runEdit('Applying speed…', async () => {
+      const ctx = audioEngine.getContext();
+      if (sel && sel.end > sel.start) {
+        const newBuffer = await BufferUtils.timeStretchBufferAsync(ctx, buf, cleanRate, keep, sel.start, sel.end);
+        const newEnd = sel.start + (sel.end - sel.start) / cleanRate;
+        audioEngine.setBufferDirectly(newBuffer, `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'}) on selection`);
+        setSelection({ start: sel.start, end: newEnd });
+        showToast(`Applied ${cleanRate}x speed transform (${keep ? 'Keep pitch' : 'Shift pitch'}) to selection`, 'success');
+      } else {
+        const newBuffer = await BufferUtils.timeStretchBufferAsync(ctx, buf, cleanRate, keep);
+        audioEngine.setBufferDirectly(newBuffer, `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'})`);
+        showToast(`Applied ${cleanRate}x speed transform (${keep ? 'Keep pitch' : 'Shift pitch'}) to track`, 'success');
+      }
+    });
+  }, [currentBuffer, selection, runEdit, showToast]);
 
   const handleSilence = useCallback(() => {
     if (!currentBuffer || !selection || selection.end <= selection.start) return;
-    const ctx = audioEngine.getContext();
-    const newBuffer = BufferUtils.muteRegion(ctx, currentBuffer, selection.start, selection.end);
-    audioEngine.setBufferDirectly(newBuffer, `Silenced ${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s`);
-    showToast('Selection silenced', 'success');
-  }, [currentBuffer, selection, showToast]);
+    const buf = currentBuffer;
+    const sel = selection;
+    void runEdit('Silencing…', async () => {
+      const patch = await BufferUtils.muteRegionInPlace(buf, sel.start, sel.end);
+      commitInPlace(`Silenced ${sel.start.toFixed(2)}s - ${sel.end.toFixed(2)}s`, patch, 'Selection silenced');
+    });
+  }, [currentBuffer, selection, runEdit, commitInPlace]);
 
   const handleInsertSilence = useCallback((
     durationSec: number,
     placement: 'playhead' | 'start' | 'end' | 'replace-selection' = 'playhead'
   ) => {
     if (!currentBuffer) return;
-    const ctx = audioEngine.getContext();
-    let newBuffer: AudioBuffer;
-    let label = '';
+    const buf = currentBuffer;
+    const sel = selection;
+    const playhead = currentTime;
+    void runEdit('Inserting silence…', async () => {
+      const ctx = audioEngine.getContext();
+      let newBuffer: AudioBuffer;
+      let label = '';
 
-    if (placement === 'replace-selection' && selection && selection.end > selection.start) {
-      const silenceBuf = BufferUtils.createEmptyBuffer(
-        ctx,
-        currentBuffer.numberOfChannels,
-        Math.floor(durationSec * currentBuffer.sampleRate),
-        currentBuffer.sampleRate
-      );
-      newBuffer = BufferUtils.replaceBufferRegion(ctx, currentBuffer, silenceBuf, selection.start, selection.end);
-      label = `Replaced selection with ${durationSec}s silence`;
-    } else {
-      let atSec = currentTime;
-      if (placement === 'start') atSec = 0;
-      if (placement === 'end') atSec = currentBuffer.duration;
-      newBuffer = BufferUtils.insertSilence(ctx, currentBuffer, atSec, durationSec);
-      label = `Inserted ${durationSec}s silence at ${atSec.toFixed(2)}s`;
-    }
+      if (placement === 'replace-selection' && sel && sel.end > sel.start) {
+        const silenceBuf = BufferUtils.createEmptyBuffer(
+          ctx,
+          buf.numberOfChannels,
+          Math.floor(durationSec * buf.sampleRate),
+          buf.sampleRate
+        );
+        newBuffer = await BufferUtils.replaceBufferRegionAsync(ctx, buf, silenceBuf, sel.start, sel.end);
+        label = `Replaced selection with ${durationSec}s silence`;
+      } else {
+        let atSec = playhead;
+        if (placement === 'start') atSec = 0;
+        if (placement === 'end') atSec = buf.duration;
+        newBuffer = await BufferUtils.insertSilenceAsync(ctx, buf, atSec, durationSec);
+        label = `Inserted ${durationSec}s silence at ${atSec.toFixed(2)}s`;
+      }
 
-    audioEngine.setBufferDirectly(newBuffer, label);
-    showToast(`Silence inserted (${durationSec}s)`, 'success');
-  }, [currentBuffer, selection, currentTime, showToast]);
+      audioEngine.setBufferDirectly(newBuffer, label);
+      showToast(`Silence inserted (${durationSec}s)`, 'success');
+    });
+  }, [currentBuffer, selection, currentTime, runEdit, showToast]);
 
   const handleQuickFadeIn = useCallback(() => {
     if (!currentBuffer) return;
-    const ctx = audioEngine.getContext();
+    const buf = currentBuffer;
     let startSec = 0;
     let duration = fadeInDuration;
 
@@ -645,16 +712,17 @@ export function AudioStudioApp() {
       duration = selection.end - selection.start;
     }
 
-    const safeDuration = Math.min(duration, Math.max(0.01, currentBuffer.duration - startSec));
-    const newBuffer = BufferUtils.applyFade(ctx, currentBuffer, startSec, safeDuration, 'in', fadeCurve);
-    audioEngine.setBufferDirectly(newBuffer, `Fade In (${safeDuration.toFixed(2)}s, ${fadeCurve})`);
-    showToast(`Fade In applied (${safeDuration.toFixed(2)}s)`, 'success');
-  }, [currentBuffer, selection, fadeInDuration, fadeCurve, showToast]);
+    const safeDuration = Math.min(duration, Math.max(0.01, buf.duration - startSec));
+    void runEdit('Applying fade in…', async () => {
+      const patch = await BufferUtils.applyFadeInPlace(buf, startSec, safeDuration, 'in', fadeCurve);
+      commitInPlace(`Fade In (${safeDuration.toFixed(2)}s, ${fadeCurve})`, patch, `Fade In applied (${safeDuration.toFixed(2)}s)`);
+    });
+  }, [currentBuffer, selection, fadeInDuration, fadeCurve, runEdit, commitInPlace]);
 
   const handleQuickFadeOut = useCallback(() => {
     if (!currentBuffer) return;
-    const ctx = audioEngine.getContext();
-    let startSec = Math.max(0, currentBuffer.duration - fadeOutDuration);
+    const buf = currentBuffer;
+    let startSec = Math.max(0, buf.duration - fadeOutDuration);
     let duration = fadeOutDuration;
 
     if (selection && selection.end > selection.start) {
@@ -662,11 +730,12 @@ export function AudioStudioApp() {
       duration = selection.end - selection.start;
     }
 
-    const safeDuration = Math.min(duration, Math.max(0.01, currentBuffer.duration - startSec));
-    const newBuffer = BufferUtils.applyFade(ctx, currentBuffer, startSec, safeDuration, 'out', fadeCurve);
-    audioEngine.setBufferDirectly(newBuffer, `Fade Out (${safeDuration.toFixed(2)}s, ${fadeCurve})`);
-    showToast(`Fade Out applied (${safeDuration.toFixed(2)}s)`, 'success');
-  }, [currentBuffer, selection, fadeOutDuration, fadeCurve, showToast]);
+    const safeDuration = Math.min(duration, Math.max(0.01, buf.duration - startSec));
+    void runEdit('Applying fade out…', async () => {
+      const patch = await BufferUtils.applyFadeInPlace(buf, startSec, safeDuration, 'out', fadeCurve);
+      commitInPlace(`Fade Out (${safeDuration.toFixed(2)}s, ${fadeCurve})`, patch, `Fade Out applied (${safeDuration.toFixed(2)}s)`);
+    });
+  }, [currentBuffer, selection, fadeOutDuration, fadeCurve, runEdit, commitInPlace]);
 
   const handleOpenFadeModal = useCallback((type: FadeType = 'in') => {
     setFadeModalInitialType(type);
@@ -680,7 +749,9 @@ export function AudioStudioApp() {
     position: FadePosition
   ) => {
     if (!currentBuffer) return;
-    const ctx = audioEngine.getContext();
+    const buf = currentBuffer;
+    const sel = selection;
+    const playhead = currentTime;
     if (type === 'in') {
       setFadeInDuration(durationSec);
     } else {
@@ -689,51 +760,61 @@ export function AudioStudioApp() {
     setFadeCurve(curve);
 
     let startSec = 0;
-    const trackDur = currentBuffer.duration;
+    const trackDur = buf.duration;
 
     if (position === 'start') {
       startSec = 0;
     } else if (position === 'end') {
       startSec = Math.max(0, trackDur - durationSec);
-    } else if (position === 'selection' && selection && selection.end > selection.start) {
-      startSec = selection.start;
+    } else if (position === 'selection' && sel && sel.end > sel.start) {
+      startSec = sel.start;
     } else if (position === 'playhead') {
-      startSec = type === 'in' ? currentTime : Math.max(0, currentTime - durationSec);
+      startSec = type === 'in' ? playhead : Math.max(0, playhead - durationSec);
     }
 
     const safeDuration = Math.min(durationSec, Math.max(0.01, trackDur - startSec));
-    const newBuffer = BufferUtils.applyFade(ctx, currentBuffer, startSec, safeDuration, type, curve);
-    const label = `${type === 'in' ? 'Fade In' : 'Fade Out'} (${safeDuration.toFixed(2)}s, ${curve})`;
-    audioEngine.setBufferDirectly(newBuffer, label);
-    showToast(`Fade ${type === 'in' ? 'In' : 'Out'} applied (${safeDuration.toFixed(2)}s)`, 'success');
-  }, [currentBuffer, selection, currentTime, showToast]);
+    void runEdit('Applying fade…', async () => {
+      const patch = await BufferUtils.applyFadeInPlace(buf, startSec, safeDuration, type, curve);
+      const label = `${type === 'in' ? 'Fade In' : 'Fade Out'} (${safeDuration.toFixed(2)}s, ${curve})`;
+      commitInPlace(label, patch, `Fade ${type === 'in' ? 'In' : 'Out'} applied (${safeDuration.toFixed(2)}s)`);
+    });
+  }, [currentBuffer, selection, currentTime, runEdit, commitInPlace]);
 
   const handleApplyGain = useCallback((gainDb: number, target: 'selection' | 'all') => {
     if (!currentBuffer) return;
-    const ctx = audioEngine.getContext();
-    const isSelection = target === 'selection' && selection && selection.end > selection.start;
-    const startSec = isSelection ? selection.start : undefined;
-    const endSec = isSelection ? selection.end : undefined;
-    const newBuffer = BufferUtils.applyGain(ctx, currentBuffer, gainDb, startSec, endSec);
-    const scopeLabel = isSelection ? ` (${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s)` : '';
-    audioEngine.setBufferDirectly(newBuffer, `Gain ${gainDb > 0 ? '+' : ''}${gainDb}dB${scopeLabel}`);
-    showToast(`Gain applied (${gainDb > 0 ? '+' : ''}${gainDb} dB)`, 'success');
-  }, [currentBuffer, selection, showToast]);
+    const buf = currentBuffer;
+    const sel = selection;
+    const isSelection = target === 'selection' && sel && sel.end > sel.start;
+    const startSec = isSelection ? sel.start : undefined;
+    const endSec = isSelection ? sel.end : undefined;
+    void runEdit('Applying gain…', async () => {
+      const patch = await BufferUtils.applyGainInPlace(buf, gainDb, startSec, endSec);
+      const scopeLabel = isSelection ? ` (${sel.start.toFixed(2)}s - ${sel.end.toFixed(2)}s)` : '';
+      commitInPlace(
+        `Gain ${gainDb > 0 ? '+' : ''}${gainDb}dB${scopeLabel}`,
+        patch,
+        `Gain applied (${gainDb > 0 ? '+' : ''}${gainDb} dB)`
+      );
+    });
+  }, [currentBuffer, selection, runEdit, commitInPlace]);
 
   const handleApplyNormalize = useCallback((targetDb: number = -0.1, scope: 'all' | 'selection' = 'all') => {
     if (!currentBuffer) return;
-    const ctx = audioEngine.getContext();
-    const isSelection = scope === 'selection' && selection && selection.end > selection.start;
-    const startSec = isSelection ? selection.start : undefined;
-    const endSec = isSelection ? selection.end : undefined;
-    const newBuffer = BufferUtils.normalizeBuffer(ctx, currentBuffer, targetDb, startSec, endSec);
-    const scopeLabel = isSelection ? ` (${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s)` : ' (All)';
-    const label = `Normalize to ${targetDb > 0 ? `+${targetDb}` : targetDb}dBFS${scopeLabel}`;
-    audioEngine.setBufferDirectly(newBuffer, label);
-    showToast(`Normalized to ${targetDb} dBFS`, 'success');
-  }, [currentBuffer, selection, showToast]);
+    const buf = currentBuffer;
+    const sel = selection;
+    const isSelection = scope === 'selection' && sel && sel.end > sel.start;
+    const startSec = isSelection ? sel.start : undefined;
+    const endSec = isSelection ? sel.end : undefined;
+    void runEdit('Normalizing…', async () => {
+      const patch = await BufferUtils.normalizeBufferInPlace(buf, targetDb, startSec, endSec);
+      const scopeLabel = isSelection ? ` (${sel.start.toFixed(2)}s - ${sel.end.toFixed(2)}s)` : ' (All)';
+      const label = `Normalize to ${targetDb > 0 ? `+${targetDb}` : targetDb}dBFS${scopeLabel}`;
+      commitInPlace(label, patch, `Normalized to ${targetDb} dBFS`);
+    });
+  }, [currentBuffer, selection, runEdit, commitInPlace]);
 
   const handleGenerateSignal = useCallback(async (settings: SignalGeneratorSettings) => {
+    await runEdit('Generating signal…', async () => {
     const ctx = audioEngine.getContext();
     const genBuffer = BufferUtils.generateSignalBuffer(ctx, {
       type: settings.type,
@@ -781,86 +862,96 @@ export function AudioStudioApp() {
 
     let resultBuffer: AudioBuffer;
     if (settings.placement === 'replace-selection' && selection && selection.end > selection.start) {
-      resultBuffer = BufferUtils.replaceBufferRegion(ctx, currentBuffer, genBuffer, selection.start, selection.end);
+      resultBuffer = await BufferUtils.replaceBufferRegionAsync(ctx, currentBuffer, genBuffer, selection.start, selection.end);
     } else {
       let atSec = currentTime;
       if (settings.placement === 'start') atSec = 0;
       if (settings.placement === 'end') atSec = currentBuffer.duration;
-      resultBuffer = BufferUtils.insertBufferAt(ctx, currentBuffer, genBuffer, atSec);
+      resultBuffer = await BufferUtils.insertBufferAtAsync(ctx, currentBuffer, genBuffer, atSec);
     }
 
     audioEngine.setBufferDirectly(resultBuffer, `Inserted ${genName}`);
     showToast(`Signal inserted (${genName})`, 'success');
-  }, [currentBuffer, selection, currentTime, activeFolderId, loadData, loadFileToEditor, showToast]);
+    });
+  }, [currentBuffer, selection, currentTime, activeFolderId, loadData, loadFileToEditor, showToast, runEdit]);
 
   const handleReverse = useCallback(() => {
     if (!currentBuffer) return;
-    const ctx = audioEngine.getContext();
-    const isSelection = selection && selection.end > selection.start;
-    const startSec = isSelection ? selection.start : undefined;
-    const endSec = isSelection ? selection.end : undefined;
-    const newBuffer = BufferUtils.reverseBuffer(ctx, currentBuffer, startSec, endSec);
-    const desc = isSelection
-      ? `Reverse ${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s`
-      : 'Reverse entire track';
-    audioEngine.setBufferDirectly(newBuffer, desc);
-    showToast(isSelection ? 'Selection reversed' : 'Audio reversed', 'success');
-  }, [currentBuffer, selection, showToast]);
+    const buf = currentBuffer;
+    const sel = selection;
+    const isSelection = !!(sel && sel.end > sel.start);
+    const startSec = isSelection ? sel.start : undefined;
+    const endSec = isSelection ? sel.end : undefined;
+    void runEdit('Reversing…', async () => {
+      const patch = await BufferUtils.reverseBufferInPlace(buf, startSec, endSec);
+      const desc = isSelection
+        ? `Reverse ${sel.start.toFixed(2)}s - ${sel.end.toFixed(2)}s`
+        : 'Reverse entire track';
+      commitInPlace(desc, patch, isSelection ? 'Selection reversed' : 'Audio reversed');
+    });
+  }, [currentBuffer, selection, runEdit, commitInPlace]);
 
   const handleInvert = useCallback(() => {
     if (!currentBuffer) return;
-    const ctx = audioEngine.getContext();
-    const isSelection = selection && selection.end > selection.start;
-    const startSec = isSelection ? selection.start : undefined;
-    const endSec = isSelection ? selection.end : undefined;
-    const newBuffer = BufferUtils.invertPhase(ctx, currentBuffer, startSec, endSec);
-    const desc = isSelection
-      ? `Invert Phase ${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s`
-      : 'Invert Phase';
-    audioEngine.setBufferDirectly(newBuffer, desc);
-    showToast(isSelection ? 'Selection phase inverted' : 'Phase inverted', 'success');
-  }, [currentBuffer, selection, showToast]);
+    const buf = currentBuffer;
+    const sel = selection;
+    const isSelection = !!(sel && sel.end > sel.start);
+    const startSec = isSelection ? sel.start : undefined;
+    const endSec = isSelection ? sel.end : undefined;
+    void runEdit('Inverting phase…', async () => {
+      const patch = await BufferUtils.invertPhaseInPlace(buf, startSec, endSec);
+      const desc = isSelection
+        ? `Invert Phase ${sel.start.toFixed(2)}s - ${sel.end.toFixed(2)}s`
+        : 'Invert Phase';
+      commitInPlace(desc, patch, isSelection ? 'Selection phase inverted' : 'Phase inverted');
+    });
+  }, [currentBuffer, selection, runEdit, commitInPlace]);
 
   const handleSplit = useCallback(async () => {
     if (!currentBuffer || currentTime <= 0 || currentTime >= currentBuffer.duration) {
       showToast('Set playhead to split point', 'info');
       return;
     }
-    const ctx = audioEngine.getContext();
-    const part1 = BufferUtils.sliceBuffer(ctx, currentBuffer, 0, currentTime);
-    const part2 = BufferUtils.sliceBuffer(ctx, currentBuffer, currentTime, currentBuffer.duration);
+    const buf = currentBuffer;
+    const splitAt = currentTime;
+    const baseName = currentFileName;
+    await runEdit('Splitting…', async () => {
+      const ctx = audioEngine.getContext();
+      const part1 = await BufferUtils.sliceBufferAsync(ctx, buf, 0, splitAt);
+      const part2 = await BufferUtils.sliceBufferAsync(ctx, buf, splitAt, buf.duration);
 
-    const res = await exportAudio(part2, {
-      format: 'wav',
-      wavBitDepth: 16,
-      mp3Bitrate: 192,
-      sampleRate: part2.sampleRate,
-      channels: part2.numberOfChannels as 1 | 2,
-      exportScope: 'all',
-      fileName: `${currentFileName} (Part 2)`
-    }, null, ctx);
+      const res = await exportAudio(part2, {
+        format: 'wav',
+        wavBitDepth: 16,
+        mp3Bitrate: 192,
+        sampleRate: part2.sampleRate,
+        channels: part2.numberOfChannels as 1 | 2,
+        exportScope: 'all',
+        fileName: `${baseName} (Part 2)`
+      }, null, ctx);
 
-    await saveAudioFile({
-      name: `${currentFileName} (Part 2)`,
-      folderId: activeFolderId,
-      duration: part2.duration,
-      sampleRate: part2.sampleRate,
-      numberOfChannels: part2.numberOfChannels,
-      format: 'wav',
-      size: res.blob.size,
-      blob: res.blob,
-      waveformPeaks: generateWaveformPeaks(part2, 64),
-      tags: ['split']
+      await saveAudioFile({
+        name: `${baseName} (Part 2)`,
+        folderId: activeFolderId,
+        duration: part2.duration,
+        sampleRate: part2.sampleRate,
+        numberOfChannels: part2.numberOfChannels,
+        format: 'wav',
+        size: res.blob.size,
+        blob: res.blob,
+        waveformPeaks: generateWaveformPeaks(part2, 64),
+        tags: ['split']
+      });
+
+      audioEngine.setBufferDirectly(part1, `Split at ${splitAt.toFixed(2)}s`);
+      setCurrentFileName(`${baseName} (Part 1)`);
+
+      const updatedFiles = await getAllAudioFiles();
+      setFiles(updatedFiles);
+      await refreshStorage();
+      showToast(`Track split at ${splitAt.toFixed(2)}s`, 'success');
     });
-
-    audioEngine.setBufferDirectly(part1, `Split at ${currentTime.toFixed(2)}s`);
-    setCurrentFileName(`${currentFileName} (Part 1)`);
-
-    const updatedFiles = await getAllAudioFiles();
-    setFiles(updatedFiles);
-    await refreshStorage();
-    showToast(`Track split at ${currentTime.toFixed(2)}s`, 'success');
-  }, [currentBuffer, currentTime, currentFileName, activeFolderId, refreshStorage, showToast]);
+  }, [currentBuffer, currentTime, currentFileName, activeFolderId, refreshStorage, showToast, runEdit]);
 
   const handleApplyEffects = useCallback(async (
     eq: EQSettings,
@@ -870,7 +961,9 @@ export function AudioStudioApp() {
     keepPitch: boolean = true
   ) => {
     if (!currentBuffer) return;
-    const newBuffer = await EffectsChain.renderEffects(currentBuffer, eq, filters, comp, speed, keepPitch);
+    const buf = currentBuffer;
+    await runEdit('Rendering effects…', async () => {
+    const newBuffer = await EffectsChain.renderEffects(buf, eq, filters, comp, speed, keepPitch);
     const effectParts: string[] = [];
     if (eq.enabled && (eq.lowGain !== 0 || eq.midGain !== 0 || eq.highGain !== 0)) effectParts.push('EQ');
     if (filters.highpassEnabled) effectParts.push('Highpass');
@@ -880,7 +973,8 @@ export function AudioStudioApp() {
     const label = effectParts.length > 0 ? `Effects (${effectParts.join(', ')})` : 'Applied DSP Effects';
     audioEngine.setBufferDirectly(newBuffer, label);
     showToast('Effects applied', 'success');
-  }, [currentBuffer, showToast]);
+    });
+  }, [currentBuffer, runEdit, showToast]);
 
   const handleOpenVoiceChangerModal = useCallback(() => {
     setVoiceChangerModalOpen(true);
@@ -892,22 +986,21 @@ export function AudioStudioApp() {
 
   const handleApplyVoiceChanger = useCallback(async (settings: VoiceChangerSettings) => {
     if (!currentBuffer) return;
-    try {
-      const scopeDesc = settings.scope === 'selection' && selection && selection.end > selection.start
-        ? ` (${selection.start.toFixed(2)}s - ${selection.end.toFixed(2)}s)`
+    const buf = currentBuffer;
+    const sel = selection;
+    await runEdit('Rendering voice FX…', async () => {
+      const scopeDesc = settings.scope === 'selection' && sel && sel.end > sel.start
+        ? ` (${sel.start.toFixed(2)}s - ${sel.end.toFixed(2)}s)`
         : '';
       const presetObj = VOICE_PRESETS.find((p) => p.id === settings.presetId);
       const presetName = presetObj ? presetObj.name : (settings.presetId && settings.presetId !== 'custom' ? settings.presetId : 'Custom FX');
       const actionName = `Voice FX: ${presetName}${scopeDesc}`;
 
-      const newBuffer = await VoiceChangerEngine.renderVoiceChanger(currentBuffer, settings, selection);
+      const newBuffer = await VoiceChangerEngine.renderVoiceChanger(buf, settings, sel);
       audioEngine.setBufferDirectly(newBuffer, actionName);
       showToast(`Applied ${actionName}`, 'success');
-    } catch (err) {
-      console.error('Failed to apply voice changer:', err);
-      showToast('Error applying voice transformation', 'error');
-    }
-  }, [currentBuffer, selection, showToast]);
+    });
+  }, [currentBuffer, selection, runEdit, showToast]);
 
   const handleExport = useCallback(async (
     settings: ExportSettings,
@@ -916,14 +1009,21 @@ export function AudioStudioApp() {
   ) => {
     if (!currentBuffer) return;
     const ctx = audioEngine.getContext();
-    const result = await exportAudio(currentBuffer, settings, selection, ctx, onProgress);
+    let result;
+    try {
+      result = await exportAudio(currentBuffer, settings, selection, ctx, onProgress);
+    } catch (err) {
+      console.error(err);
+      showToast(err instanceof Error ? err.message : 'Export failed', 'error');
+      return;
+    }
 
     if (destination === 'download') {
       triggerDownload(result.blob, result.fileName);
       showToast(`Exported: ${result.fileName}`, 'success');
     } else {
       const targetBuffer = settings.exportScope === 'selection' && selection
-        ? BufferUtils.sliceBuffer(ctx, currentBuffer, selection.start, selection.end)
+        ? await BufferUtils.sliceBufferAsync(ctx, currentBuffer, selection.start, selection.end)
         : currentBuffer;
 
       const peaks = generateWaveformPeaks(targetBuffer, 64);
@@ -1013,8 +1113,7 @@ export function AudioStudioApp() {
       }
 
       try {
-        const arrayBuf = await file.arrayBuffer();
-        const decoded = await tempAudioCtx.decodeAudioData(arrayBuf.slice(0));
+        const decoded = await decodeAudioBlob(tempAudioCtx, file);
         const nameParts = file.name.split('.');
         const format = nameParts.length > 1 ? nameParts.pop()!.toLowerCase() : 'wav';
         const name = nameParts.join('.');
@@ -1502,6 +1601,7 @@ export function AudioStudioApp() {
           {/* MiniMap Overview */}
           <MiniMap
             buffer={currentBuffer}
+            bufferEpoch={bufferEpoch}
             duration={duration}
             currentTime={currentTime}
             viewportStart={viewportStart}
@@ -1531,6 +1631,7 @@ export function AudioStudioApp() {
           <div ref={canvasContainerRef} className="waveform-workspace">
             <WaveformCanvas
               buffer={currentBuffer}
+              bufferEpoch={bufferEpoch}
               currentTime={currentTime}
               selection={selection}
               zoom={zoom}
@@ -1696,6 +1797,18 @@ export function AudioStudioApp() {
         deferredPrompt={deferredPrompt}
         onPromptInstall={handlePromptInstall}
       />
+
+      {isProcessing && (
+        <div className="processing-overlay" role="status" aria-live="polite">
+          <div className="processing-overlay-card">
+            <div className="processing-spinner" />
+            <div className="processing-overlay-title">{processingLabel || 'Processing audio…'}</div>
+            <div className="processing-overlay-hint">
+              Working in chunks so iPad Safari stays responsive and does not crash.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 import type { StorageUsage, AudioFileItem, FolderItem } from '../types/storage';
 import { db, saveAudioFile } from './database';
+import { decodeAudioBlob } from '../audio/memoryBudget';
 
 export function formatBytes(bytes: number, decimals: number = 2): string {
   if (bytes === 0) return '0 B';
@@ -166,8 +167,7 @@ export async function importFromZip(zipFile: File | Blob): Promise<{ importedCou
     for (const entry of entries) {
       try {
         const blob = await entry.zipObject.async('blob');
-        const arrayBuffer = await blob.arrayBuffer();
-        const decodedBuffer = await tempAudioCtx.decodeAudioData(arrayBuffer.slice(0));
+        const decodedBuffer = await decodeAudioBlob(tempAudioCtx, blob);
         
         const fileNameWithExt = entry.name.split('/').pop() || 'Imported Audio';
         const nameParts = fileNameWithExt.split('.');

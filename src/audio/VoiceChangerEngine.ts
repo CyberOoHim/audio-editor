@@ -1,5 +1,6 @@
 import type { VoiceChangerSettings, VoiceChangerEnvironment, VoiceChangerBandpass } from '../types/audio';
-import { replaceBufferRegion, sliceBuffer } from './BufferUtils';
+import { replaceBufferRegionAsync, sliceBufferAsync } from './BufferUtils';
+import { renderOfflineChunked } from './offlineRender';
 
 // Memory cache for generated Impulse Responses (avoids recalculating and saves iPad CPU/battery)
 const irCache = new Map<string, AudioBuffer>();
@@ -552,46 +553,38 @@ export class VoiceChangerEngine {
     selection?: { start: number; end: number } | null
   ): Promise<AudioBuffer> {
     const isSelectionScope = settings.scope === 'selection' && selection && selection.end > selection.start;
-    
-    // Determine the buffer segment to process
+
+    const dummyCtx = new OfflineAudioContext(1, 1, sourceBuffer.sampleRate);
     let targetSlice = sourceBuffer;
     if (isSelectionScope) {
-      // Slice out the selected region
-      const dummyCtx = new OfflineAudioContext(1, 1, sourceBuffer.sampleRate);
-      targetSlice = sliceBuffer(dummyCtx, sourceBuffer, selection.start, selection.end);
+      targetSlice = await sliceBufferAsync(dummyCtx, sourceBuffer, selection.start, selection.end);
     }
 
-    // Pitch shift multiplier (resampling rate)
     const pitchRate = Math.pow(2, settings.pitchSemitones / 12);
-    // Calculated output length taking pitch resampling into account
-    const outputLength = Math.max(1, Math.floor(targetSlice.length / pitchRate));
-    const sampleRate = targetSlice.sampleRate;
     const channels = Math.max(2, targetSlice.numberOfChannels);
+    const hasReverb = settings.environment !== 'none' && settings.reverbMix > 0;
+    const overlapSec = hasReverb ? Math.max(0.25, Math.min(6, settings.reverbDecay)) : 0.2;
 
-    const offlineCtx = new OfflineAudioContext(channels, outputLength, sampleRate);
+    const processedSlice = await renderOfflineChunked(
+      targetSlice,
+      (offlineCtx, sourceNode) => {
+        sourceNode.playbackRate.value = pitchRate;
+        const dsp = this.buildDspChain(offlineCtx, settings, offlineCtx.destination);
+        sourceNode.connect(dsp.inputNode);
+      },
+      {
+        playbackRate: pitchRate,
+        overlapSec,
+        tailSec: overlapSec,
+        outputChannels: channels
+      }
+    );
 
-    // Source player
-    const sourceNode = offlineCtx.createBufferSource();
-    sourceNode.buffer = targetSlice;
-    sourceNode.playbackRate.value = pitchRate;
-
-    // Attach complete DSP chain
-    const dsp = this.buildDspChain(offlineCtx, settings, offlineCtx.destination);
-    sourceNode.connect(dsp.inputNode);
-
-    sourceNode.start(0);
-
-    const processedSlice = await offlineCtx.startRendering();
-    dsp.cleanup();
-
-    // If whole track was rendered, return directly
     if (!isSelectionScope) {
       return processedSlice;
     }
 
-    // Splice transformed region back into original buffer
-    const finalCtx = new OfflineAudioContext(1, 1, sourceBuffer.sampleRate);
-    return replaceBufferRegion(finalCtx, sourceBuffer, processedSlice, selection.start, selection.end);
+    return replaceBufferRegionAsync(dummyCtx, sourceBuffer, processedSlice, selection.start, selection.end);
   }
 
   // =========================================================================
@@ -628,11 +621,13 @@ export class VoiceChangerEngine {
       await ctx.resume();
     }
 
-    // Slice selection if scope is selection
-    let playBuffer = buffer;
+    // Play from the live buffer — never clone a long selection for preview (iPad crash)
+    const playBuffer = buffer;
     let startSec = 0;
+    let playDuration: number | undefined;
     if (settings.scope === 'selection' && selection && selection.end > selection.start) {
-      playBuffer = sliceBuffer(ctx, buffer, selection.start, selection.end);
+      startSec = selection.start;
+      playDuration = Math.max(0.05, selection.end - selection.start);
     }
 
     const pitchRate = isBypassed ? 1.0 : Math.pow(2, settings.pitchSemitones / 12);
@@ -669,7 +664,11 @@ export class VoiceChangerEngine {
       if (onEnded) onEnded();
     };
 
-    source.start(0, startSec);
+    if (playDuration !== undefined) {
+      source.start(0, startSec, playDuration);
+    } else {
+      source.start(0, startSec);
+    }
     this.previewPlaying = true;
   }
 

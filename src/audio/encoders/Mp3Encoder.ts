@@ -5,6 +5,7 @@
 
 import { runWorkerEncoding } from '../workers/workerClient';
 import * as lameModule from '@breezystack/lamejs';
+import { resampleBufferChunked } from '../offlineRender';
 
 export interface Mp3EncoderOptions {
   bitrate?: number;
@@ -26,16 +27,7 @@ async function encodeMp3MainThread(
 
   let sourceBuffer = buffer;
   if (targetSampleRate !== buffer.sampleRate || targetChannels !== buffer.numberOfChannels) {
-    const offlineCtx = new OfflineAudioContext(
-      targetChannels,
-      Math.max(1, Math.ceil(buffer.duration * targetSampleRate)),
-      targetSampleRate
-    );
-    const sourceNode = offlineCtx.createBufferSource();
-    sourceNode.buffer = buffer;
-    sourceNode.connect(offlineCtx.destination);
-    sourceNode.start(0);
-    sourceBuffer = await offlineCtx.startRendering();
+    sourceBuffer = await resampleBufferChunked(buffer, targetChannels, targetSampleRate, options.onProgress);
   }
 
   const numChannels = targetChannels;

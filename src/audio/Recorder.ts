@@ -1,3 +1,5 @@
+import { getMaxDurationSec, getMemoryProfile } from './memoryBudget';
+
 export interface RecorderMetrics {
   duration: number;
   peakL: number;
@@ -7,6 +9,7 @@ export interface RecorderMetrics {
 }
 
 export type MetricsCallback = (metrics: RecorderMetrics) => void;
+export type MemoryLimitCallback = () => void;
 
 export class StudioRecorder {
   private mediaStream: MediaStream | null = null;
@@ -29,7 +32,9 @@ export class StudioRecorder {
   private startTime: number = 0;
   private pausedTimeOffset: number = 0;
   private metricsListeners: Set<MetricsCallback> = new Set();
+  private memoryLimitListeners: Set<MemoryLimitCallback> = new Set();
   private animFrameId: number | null = null;
+  private hitMemoryLimit: boolean = false;
 
   constructor(initialGainDb: number = 0) {
     this.gainDb = initialGainDb;
@@ -58,6 +63,7 @@ export class StudioRecorder {
     this.leftChannelData = [];
     this.rightChannelData = [];
     this.recordedSamples = 0;
+    this.hitMemoryLimit = false;
 
     let stream: MediaStream | null = null;
     try {
@@ -137,6 +143,18 @@ export class StudioRecorder {
         this.rightChannelData.push(chunkR);
 
         this.recordedSamples += inputL.length;
+
+        if (!this.hitMemoryLimit) {
+          const pcmBytes = this.recordedSamples * 2 * 4;
+          const profile = getMemoryProfile();
+          const maxSec = getMaxDurationSec(2, this.sampleRate);
+          const durationSec = this.recordedSamples / this.sampleRate;
+          if (pcmBytes >= profile.maxLoadBytes * 0.82 || durationSec >= maxSec * 0.95) {
+            this.hitMemoryLimit = true;
+            this.isRecording = false;
+            this.memoryLimitListeners.forEach((fn) => fn());
+          }
+        }
       };
 
       this.gainNode.connect(this.processorNode);
@@ -266,7 +284,12 @@ export class StudioRecorder {
       outL.set(chunkL, offset);
       outR.set(chunkR, offset);
       offset += chunkL.length;
+      // Drop captured chunks immediately so peak RAM is dest + remaining chunks, not 2x
+      this.leftChannelData[i] = null as unknown as Float32Array;
+      this.rightChannelData[i] = null as unknown as Float32Array;
     }
+    this.leftChannelData = [];
+    this.rightChannelData = [];
 
     this.audioCtx.close();
     this.audioCtx = null;
@@ -322,6 +345,7 @@ export class StudioRecorder {
     this.leftChannelData = [];
     this.rightChannelData = [];
     this.recordedSamples = 0;
+    this.hitMemoryLimit = false;
   }
 
   public getAnalyser(): AnalyserNode | null {
@@ -343,6 +367,15 @@ export class StudioRecorder {
   public onMetrics(cb: MetricsCallback): () => void {
     this.metricsListeners.add(cb);
     return () => this.metricsListeners.delete(cb);
+  }
+
+  public onMemoryLimit(cb: MemoryLimitCallback): () => void {
+    this.memoryLimitListeners.add(cb);
+    return () => this.memoryLimitListeners.delete(cb);
+  }
+
+  public didHitMemoryLimit(): boolean {
+    return this.hitMemoryLimit;
   }
 
   private startMetricsLoop(): void {

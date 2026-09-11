@@ -5,6 +5,7 @@ import { getDecimatedPeaks } from '../../audio/BufferUtils';
 
 export interface MiniMapProps {
   buffer: AudioBuffer | null;
+  bufferEpoch?: number;
   duration: number;
   currentTime: number;
   viewportStart: number; // in seconds
@@ -28,6 +29,7 @@ type MiniDragMode =
 
 export const MiniMap: React.FC<MiniMapProps> = React.memo(({
   buffer,
+  bufferEpoch = 0,
   duration,
   currentTime,
   viewportStart,
@@ -116,7 +118,7 @@ export const MiniMap: React.FC<MiniMapProps> = React.memo(({
     ctx.fill();
 
     ctx.restore();
-  }, [buffer, duration, width, height]);
+  }, [buffer, bufferEpoch, duration, width, height]);
 
   // 2. Draw overlay (Selection, Viewport indicator & Playhead) efficiently with differentiated visual styles based on active mode
   useEffect(() => {

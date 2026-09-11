@@ -1,6 +1,7 @@
-import type { PlayState, AudioSelection } from '../types/audio';
+import type { PlayState, AudioSelection, AudioHistoryRegionPatch } from '../types/audio';
 import { HistoryManager } from './HistoryManager';
 import { timeStretchBuffer } from './BufferUtils';
+import { estimateBufferBytes, getMemoryProfile } from './memoryBudget';
 
 export type TimeUpdateCallback = (currentTime: number) => void;
 export type StateChangeCallback = (state: PlayState) => void;
@@ -25,6 +26,7 @@ export class AudioEngine {
   private loopSelection: AudioSelection | null = null;
   
   public history: HistoryManager = new HistoryManager(25);
+  private bufferEpoch: number = 0;
   
   private timeListeners: Set<TimeUpdateCallback> = new Set();
   private stateListeners: Set<StateChangeCallback> = new Set();
@@ -111,6 +113,7 @@ export class AudioEngine {
     this.startOffset = 0;
     
     this.history.reset(buffer, historyDescription || 'Loaded Audio');
+    this.bufferEpoch++;
 
     this.notifyBufferListeners();
     this.notifyTimeListeners(0);
@@ -121,6 +124,7 @@ export class AudioEngine {
     this.currentBuffer = null;
     this.stretchedCache = null;
     this.history = new HistoryManager(25);
+    this.bufferEpoch++;
     this.notifyBufferListeners();
     this.notifyTimeListeners(0);
   }
@@ -130,15 +134,35 @@ export class AudioEngine {
     this.currentBuffer = buffer;
     this.stretchedCache = null;
     this.history.push(description, buffer);
+    this.bufferEpoch++;
     this.notifyBufferListeners();
   }
 
+  /**
+   * Commit a length-preserving in-place edit. Same AudioBuffer object is kept
+   * so a 30-minute track is not cloned. Returns whether undo was retained.
+   */
+  public commitInPlaceEdit(description: string, patch: AudioHistoryRegionPatch): boolean {
+    if (!this.currentBuffer) return false;
+    this.stop();
+    this.stretchedCache = null;
+    const keptUndo = this.history.pushInPlace(description, this.currentBuffer, patch);
+    this.bufferEpoch++;
+    this.notifyBufferListeners();
+    return keptUndo;
+  }
+
+  public getBufferEpoch(): number {
+    return this.bufferEpoch;
+  }
+
   public undo(): { undoneDescription: string } | null {
-    const result = this.history.undo();
+    const result = this.history.undo(this.currentBuffer);
     if (result) {
       this.stop();
       this.currentBuffer = result.buffer;
       this.stretchedCache = null;
+      this.bufferEpoch++;
       this.notifyBufferListeners();
       return { undoneDescription: result.undoneDescription };
     }
@@ -146,11 +170,12 @@ export class AudioEngine {
   }
 
   public redo(): { redoneDescription: string } | null {
-    const result = this.history.redo();
+    const result = this.history.redo(this.currentBuffer);
     if (result) {
       this.stop();
       this.currentBuffer = result.buffer;
       this.stretchedCache = null;
+      this.bufferEpoch++;
       this.notifyBufferListeners();
       return { redoneDescription: result.redoneDescription };
     }
@@ -201,6 +226,17 @@ export class AudioEngine {
       Math.abs(this.stretchedCache.rate - this.playbackRate) < 0.005
     ) {
       return { buffer: this.stretchedCache.buffer, effectiveRate: 1.0, isStretched: true };
+    }
+
+    // Live WSOLA of a long file allocates a second full PCM copy and can run for
+    // minutes on the main thread — both crash iPad Safari. Keep-pitch apply is
+    // an explicit edit; preview uses native playbackRate instead.
+    const profile = getMemoryProfile();
+    const liveBytes = estimateBufferBytes(this.currentBuffer);
+    const previewBudget = profile.isConstrained ? 8 * 1024 * 1024 : 24 * 1024 * 1024;
+    if (liveBytes > previewBudget) {
+      this.stretchedCache = null;
+      return { buffer: this.currentBuffer, effectiveRate: this.playbackRate, isStretched: false };
     }
 
     const ctx = this.getContext();

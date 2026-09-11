@@ -1,4 +1,6 @@
-import type { AudioHistoryEntry } from '../types/audio';
+import type { AudioHistoryEntry, AudioHistoryRegionPatch } from '../types/audio';
+import { swapRegion } from './BufferUtils';
+import { estimateBufferBytes, getMemoryProfile } from './memoryBudget';
 
 export class HistoryManager {
   private history: AudioHistoryEntry[] = [];
@@ -6,16 +8,24 @@ export class HistoryManager {
   private maxDepth: number;
   private maxMemoryBytes: number;
 
-  constructor(maxDepth: number = 25, maxMemoryBytes: number = 150 * 1024 * 1024) {
-    this.maxDepth = maxDepth;
-    this.maxMemoryBytes = maxMemoryBytes;
+  constructor(maxDepth: number = 25, maxMemoryBytes?: number) {
+    const profile = getMemoryProfile();
+    this.maxDepth = profile.isConstrained ? Math.min(maxDepth, 8) : maxDepth;
+    this.maxMemoryBytes = maxMemoryBytes ?? (profile.maxScratchBytes + Math.min(profile.maxLoadBytes, 80 * 1024 * 1024));
   }
 
   private calculateTotalMemory(): number {
     let total = 0;
+    const seenBuffers = new Set<AudioBuffer>();
     for (const entry of this.history) {
-      if (entry.buffer) {
-        total += entry.buffer.length * entry.buffer.numberOfChannels * 4;
+      if (entry.buffer && !seenBuffers.has(entry.buffer)) {
+        seenBuffers.add(entry.buffer);
+        total += estimateBufferBytes(entry.buffer);
+      }
+      if (entry.regionPatch) {
+        for (const ch of entry.regionPatch.channels) {
+          total += ch.byteLength;
+        }
       }
     }
     return total;
@@ -28,21 +38,21 @@ export class HistoryManager {
       ? this.history[this.currentIndex]
       : this.history[this.history.length - 1];
 
-    const currentBytes = currentEntry?.buffer
-      ? currentEntry.buffer.length * currentEntry.buffer.numberOfChannels * 4
-      : 0;
+    const currentBytes = currentEntry?.buffer ? estimateBufferBytes(currentEntry.buffer) : 0;
 
-    // For large buffers (> 50MB, e.g. 5+ mins stereo), scale down depth dynamically to prevent browser Jetsam crashes
+    // Scale undo depth with live-buffer size so iPad Jetsam cannot keep N hour-long copies
     let effectiveMaxDepth = this.maxDepth;
     if (currentBytes > 200 * 1024 * 1024) {
-      // > 200MB (20-50 min audio): Keep current + 1 undo step
       effectiveMaxDepth = 2;
     } else if (currentBytes > 50 * 1024 * 1024) {
-      // > 50MB (5-20 min audio): Keep up to 4 steps
       effectiveMaxDepth = 4;
     }
 
-    // Prune oldest entries if exceeding depth limit or total memory budget
+    const profile = getMemoryProfile();
+    if (profile.isConstrained && currentBytes > 80 * 1024 * 1024) {
+      effectiveMaxDepth = Math.min(effectiveMaxDepth, 2);
+    }
+
     while (
       this.history.length > 1 &&
       (this.history.length > effectiveMaxDepth || this.calculateTotalMemory() > this.maxMemoryBytes)
@@ -58,7 +68,6 @@ export class HistoryManager {
   }
 
   public push(description: string, buffer: AudioBuffer): void {
-    // If we undo and then make a new edit, discard any future redo branch immediately
     if (this.currentIndex < this.history.length - 1) {
       this.history = this.history.slice(0, this.currentIndex + 1);
     }
@@ -67,13 +76,54 @@ export class HistoryManager {
       id: 'hist_' + Math.random().toString(36).substring(2, 9),
       description,
       timestamp: Date.now(),
-      buffer, // Store buffer directly to avoid redundant 1GB clones
+      buffer
     };
 
     this.history.push(entry);
     this.currentIndex++;
 
     this.enforceMemoryLimit();
+  }
+
+  /**
+   * Record an in-place region undo. `buffer` is the live (already mutated) buffer.
+   * Returns false when the patch was dropped to stay under the device RAM budget (no undo).
+   */
+  public pushInPlace(
+    description: string,
+    buffer: AudioBuffer,
+    patch: AudioHistoryRegionPatch
+  ): boolean {
+    const patchBytes = patch.channels.reduce((sum, ch) => sum + ch.byteLength, 0);
+    const profile = getMemoryProfile();
+    const patchBudget = profile.isConstrained ? Math.min(32 * 1024 * 1024, profile.maxScratchBytes) : profile.maxScratchBytes;
+
+    if (this.currentIndex < this.history.length - 1) {
+      this.history = this.history.slice(0, this.currentIndex + 1);
+    }
+
+    if (patchBytes > patchBudget) {
+      // Full-track in-place on a long file: keep the mutated buffer, drop undo copies
+      this.history = [{
+        id: 'hist_' + Math.random().toString(36).substring(2, 9),
+        description,
+        timestamp: Date.now(),
+        buffer
+      }];
+      this.currentIndex = 0;
+      return false;
+    }
+
+    this.history.push({
+      id: 'hist_' + Math.random().toString(36).substring(2, 9),
+      description,
+      timestamp: Date.now(),
+      buffer,
+      regionPatch: patch
+    });
+    this.currentIndex++;
+    this.enforceMemoryLimit();
+    return true;
   }
 
   public canUndo(): boolean {
@@ -98,26 +148,43 @@ export class HistoryManager {
     return null;
   }
 
-  public undo(): { entry: AudioHistoryEntry; buffer: AudioBuffer; undoneDescription: string } | null {
+  public undo(liveBuffer?: AudioBuffer | null): { entry: AudioHistoryEntry; buffer: AudioBuffer; undoneDescription: string } | null {
     if (!this.canUndo()) return null;
     const undoneEntry = this.history[this.currentIndex];
+    if (undoneEntry.regionPatch && liveBuffer) {
+      swapRegion(liveBuffer, undoneEntry.regionPatch);
+      this.currentIndex--;
+      return {
+        entry: this.history[this.currentIndex],
+        buffer: liveBuffer,
+        undoneDescription: undoneEntry.description
+      };
+    }
     this.currentIndex--;
     const entry = this.history[this.currentIndex];
     return {
       entry,
       buffer: entry.buffer,
-      undoneDescription: undoneEntry.description,
+      undoneDescription: undoneEntry.description
     };
   }
 
-  public redo(): { entry: AudioHistoryEntry; buffer: AudioBuffer; redoneDescription: string } | null {
+  public redo(liveBuffer?: AudioBuffer | null): { entry: AudioHistoryEntry; buffer: AudioBuffer; redoneDescription: string } | null {
     if (!this.canRedo()) return null;
     this.currentIndex++;
     const entry = this.history[this.currentIndex];
+    if (entry.regionPatch && liveBuffer) {
+      swapRegion(liveBuffer, entry.regionPatch);
+      return {
+        entry,
+        buffer: liveBuffer,
+        redoneDescription: entry.description
+      };
+    }
     return {
       entry,
       buffer: entry.buffer,
-      redoneDescription: entry.description,
+      redoneDescription: entry.description
     };
   }
 
@@ -133,7 +200,7 @@ export class HistoryManager {
       id: entry.id,
       description: entry.description,
       timestamp: entry.timestamp,
-      isCurrent: index === this.currentIndex,
+      isCurrent: index === this.currentIndex
     }));
   }
 

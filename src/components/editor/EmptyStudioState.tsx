@@ -147,7 +147,7 @@ export const EmptyStudioState: React.FC<EmptyStudioStateProps> = ({
           onClick={(e) => e.stopPropagation()}
         >
           <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>⚡</span>
-          <span>In-browser processing • No file size limits (≤ 60 min/file recommended for RAM)</span>
+          <span>In-browser processing • Long takes are chunked on iPad to prevent crashes</span>
         </div>
       </div>
 

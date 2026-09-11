@@ -3,6 +3,9 @@
  * Handles background execution, zero-copy buffer transfers, progress streaming, and fallback.
  */
 
+import { copyFloat32Yielding } from '../memoryBudget';
+import { resampleBufferChunked } from '../offlineRender';
+
 let activeWorker: Worker | null = null;
 let currentJobId = 0;
 const pendingJobs = new Map<
@@ -75,13 +78,7 @@ async function prepareSourceBuffer(
     return buffer;
   }
 
-  const targetLength = Math.max(1, Math.ceil(buffer.duration * targetSampleRate));
-  const offlineCtx = new OfflineAudioContext(targetChannels, targetLength, targetSampleRate);
-  const sourceNode = offlineCtx.createBufferSource();
-  sourceNode.buffer = buffer;
-  sourceNode.connect(offlineCtx.destination);
-  sourceNode.start(0);
-  return await offlineCtx.startRendering();
+  return resampleBufferChunked(buffer, targetChannels, targetSampleRate);
 }
 
 /**
@@ -98,9 +95,15 @@ export async function runWorkerEncoding(
   const sourceBuffer = await prepareSourceBuffer(buffer, targetChannels, targetSampleRate);
   const numChannels = sourceBuffer.numberOfChannels as 1 | 2;
 
-  // Copy channel Float32Arrays for zero-copy worker transfer
-  const ch0 = new Float32Array(sourceBuffer.getChannelData(0));
-  const ch1 = numChannels > 1 ? new Float32Array(sourceBuffer.getChannelData(1)) : null;
+  // Copy channel data (cannot transfer AudioBuffer backing store). Yield so iPad
+  // Safari is not watchdog-killed while duplicating a long take.
+  const ch0 = new Float32Array(sourceBuffer.length);
+  await copyFloat32Yielding(ch0, sourceBuffer.getChannelData(0));
+  let ch1: Float32Array | null = null;
+  if (numChannels > 1) {
+    ch1 = new Float32Array(sourceBuffer.length);
+    await copyFloat32Yielding(ch1, sourceBuffer.getChannelData(1));
+  }
 
   const transferList: Transferable[] = [ch0.buffer];
   if (ch1) transferList.push(ch1.buffer);

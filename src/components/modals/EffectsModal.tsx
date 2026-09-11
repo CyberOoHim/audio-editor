@@ -132,7 +132,7 @@ export const EffectsModal: React.FC<EffectsModalProps> = ({
         >
           <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>⚡</span>
-            <span>In-memory DSP rendering (OfflineAudioContext • Non-realtime fast render)</span>
+            <span>Chunked DSP render (safe for long takes on iPad • Non-realtime)</span>
           </span>
           <span style={{ color: 'var(--text-secondary)' }}>RAM-governed</span>
         </div>

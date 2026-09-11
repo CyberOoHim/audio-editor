@@ -1,5 +1,5 @@
 import type { ExportSettings, AudioSelection } from '../../types/audio';
-import { sliceBuffer } from '../BufferUtils';
+import { sliceBufferAsync } from '../BufferUtils';
 import { encodeWav } from './WavEncoder';
 import { encodeMp3 } from './Mp3Encoder';
 import { encodeAac } from './AacEncoder';
@@ -28,7 +28,7 @@ export async function exportAudio(
 
   // If selection only, extract slice
   if (settings.exportScope === 'selection' && selection) {
-    targetBuffer = sliceBuffer(ctx, buffer, selection.start, selection.end);
+    targetBuffer = await sliceBufferAsync(ctx, buffer, selection.start, selection.end);
   }
 
   let blob: Blob;

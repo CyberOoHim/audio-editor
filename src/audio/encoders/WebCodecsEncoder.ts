@@ -5,6 +5,7 @@
 
 import { muxAacToM4a, type AacChunk } from './M4aMuxer';
 import { muxOpusToOgg, type OpusFrame } from './OggOpusMuxer';
+import { resampleBufferChunked } from '../offlineRender';
 
 export function isWebCodecsAudioSupported(): boolean {
   return (
@@ -55,13 +56,7 @@ async function prepareSourceBuffer(
     return buffer;
   }
 
-  const targetLength = Math.max(1, Math.ceil(buffer.duration * targetSampleRate));
-  const offlineCtx = new OfflineAudioContext(targetChannels, targetLength, targetSampleRate);
-  const sourceNode = offlineCtx.createBufferSource();
-  sourceNode.buffer = buffer;
-  sourceNode.connect(offlineCtx.destination);
-  sourceNode.start(0);
-  return await offlineCtx.startRendering();
+  return resampleBufferChunked(buffer, targetChannels, targetSampleRate);
 }
 
 export interface WebCodecsEncoderOptions {

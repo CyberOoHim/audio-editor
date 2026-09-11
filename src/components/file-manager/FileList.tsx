@@ -3,6 +3,7 @@ import { Play, Pause, Trash2, Download, ExternalLink, Music, Clock } from 'lucid
 import type { AudioFileItem } from '../../types/storage';
 import { formatBytes } from '../../db/storageUtils';
 import { audioEngine } from '../../audio/AudioEngine';
+import { decodeAudioBlob } from '../../audio/memoryBudget';
 
 export interface FileListProps {
   files: AudioFileItem[];
@@ -112,10 +113,11 @@ export const FileList: React.FC<FileListProps> = ({
       // Check buffer cache or decode
       let buffer = bufferCacheRef.current.get(file.id);
       if (!buffer) {
-        const arrayBuffer = await file.blob.arrayBuffer();
         if (playRequestRef.current !== file.id) return; // User switched or cancelled
-        buffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+        buffer = await decodeAudioBlob(ctx, file.blob);
         if (playRequestRef.current !== file.id) return;
+        // Keep a single preview decode — caching every long file would Jetsam iPad Safari
+        bufferCacheRef.current.clear();
         bufferCacheRef.current.set(file.id, buffer);
       }
 

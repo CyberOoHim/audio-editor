@@ -7,6 +7,7 @@ import { EmptyStudioState } from './EmptyStudioState';
 
 export interface WaveformCanvasProps {
   buffer: AudioBuffer | null;
+  bufferEpoch?: number;
   currentTime: number;
   selection: AudioSelection | null;
   zoom: number; // pixels per second
@@ -31,6 +32,7 @@ type DragMode = 'none' | 'create-selection' | 'drag-handle-start' | 'drag-handle
 
 export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
   buffer,
+  bufferEpoch = 0,
   currentTime,
   selection,
   zoom,
@@ -223,7 +225,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
     }
 
     ctx.restore();
-  }, [buffer, zoom, scrollLeft, width, height, duration]);
+  }, [buffer, bufferEpoch, zoom, scrollLeft, width, height, duration]);
 
   // 2. Layer 2: Render Overlay (Selection & Playhead) on separate canvas (takes <0.01ms)
   useEffect(() => {
