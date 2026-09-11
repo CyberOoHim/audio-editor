@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { PlusCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { PlusCircle, Undo2, Redo2 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { Slider } from '../common/Slider';
 import type { AudioSelection } from '../../types/audio';
@@ -13,6 +13,12 @@ export interface SilenceModalProps {
     durationSec: number,
     placement: 'playhead' | 'start' | 'end' | 'replace-selection'
   ) => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  undoDescription?: string;
+  redoDescription?: string;
 }
 
 export const SilenceModal: React.FC<SilenceModalProps> = ({
@@ -20,11 +26,41 @@ export const SilenceModal: React.FC<SilenceModalProps> = ({
   onClose,
   selection,
   currentTime,
-  onInsertSilence
+  onInsertSilence,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
+  undoDescription = '',
+  redoDescription = ''
 }) => {
   const hasSelection = Boolean(selection && selection.end > selection.start);
   const [duration, setDuration] = useState<number>(1.0);
   const [placement, setPlacement] = useState<'playhead' | 'start' | 'end' | 'replace-selection'>('playhead');
+
+  // Hotkey support for Undo/Redo inside modal
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+      if (cmdOrCtrl && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey) {
+          if (canRedo && onRedo) onRedo();
+        } else {
+          if (canUndo && onUndo) onUndo();
+        }
+      } else if (cmdOrCtrl && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (canRedo && onRedo) onRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, canUndo, canRedo, onUndo, onRedo]);
 
   const presets = [0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0];
 
@@ -38,16 +74,44 @@ export const SilenceModal: React.FC<SilenceModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title="Insert Silence / Gap"
-      maxWidth="440px"
+      maxWidth="460px"
       footer={
-        <>
-          <button className="btn btn-secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn btn-primary" onClick={handleApply}>
-            <PlusCircle size={15} /> Insert Silence ({duration}s)
-          </button>
-        </>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {onUndo && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={onUndo}
+                disabled={!canUndo}
+                title={undoDescription ? `Undo: ${undoDescription} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}
+                style={{ height: 32, padding: '0 10px' }}
+              >
+                <Undo2 size={13} /> Undo
+              </button>
+            )}
+            {onRedo && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={onRedo}
+                disabled={!canRedo}
+                title={redoDescription ? `Redo: ${redoDescription} (Ctrl+Y)` : 'Redo (Ctrl+Y)'}
+                style={{ height: 32, padding: '0 10px' }}
+              >
+                <Redo2 size={13} /> Redo
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button className="btn btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={handleApply}>
+              <PlusCircle size={15} /> Insert Silence ({duration}s)
+            </button>
+          </div>
+        </div>
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

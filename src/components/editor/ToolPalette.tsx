@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Undo2,
   Redo2,
+  History,
+  Check,
   Crop,
   Scissors,
   VolumeX,
@@ -28,6 +30,9 @@ export interface ToolPaletteProps {
   canRedo?: boolean;
   undoDescription?: string;
   redoDescription?: string;
+  historyList?: { id: string; description: string; timestamp: number; isCurrent: boolean }[];
+  onJumpToHistoryIndex?: (index: number) => void;
+  memoryUsageInfo?: { usedBytes: number; maxBytes: number; entryCount: number };
   fadeInDuration: number;
   fadeOutDuration: number;
   onUndo?: () => void;
@@ -57,6 +62,9 @@ export const ToolPalette: React.FC<ToolPaletteProps> = React.memo(({
   canRedo = false,
   undoDescription = '',
   redoDescription = '',
+  historyList = [],
+  onJumpToHistoryIndex,
+  memoryUsageInfo,
   fadeInDuration,
   fadeOutDuration,
   onUndo,
@@ -78,6 +86,21 @@ export const ToolPalette: React.FC<ToolPaletteProps> = React.memo(({
   onOpenGenerator,
   onClearWorkspace
 }) => {
+  const [showHistoryMenu, setShowHistoryMenu] = useState(false);
+  const historyMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close history menu on outside click
+  useEffect(() => {
+    if (!showHistoryMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (historyMenuRef.current && !historyMenuRef.current.contains(e.target as Node)) {
+        setShowHistoryMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showHistoryMenu]);
+
   return (
     <div className="editor-toolbar">
       {/* Edit Group */}
@@ -101,6 +124,113 @@ export const ToolPalette: React.FC<ToolPaletteProps> = React.memo(({
         >
           <Redo2 size={14} /> Redo
         </button>
+
+        {/* History Dropdown / Inspector */}
+        <div style={{ position: 'relative' }} ref={historyMenuRef}>
+          <button
+            className={`btn btn-secondary btn-sm ${showHistoryMenu ? 'active' : ''}`}
+            onClick={() => setShowHistoryMenu(!showHistoryMenu)}
+            disabled={!hasBuffer || historyList.length === 0}
+            title="Inspect edit history and jump to any previous state"
+            aria-label="View edit history"
+          >
+            <History size={14} /> History
+            {historyList.length > 0 && (
+              <span className="mono" style={{ fontSize: 'var(--font-xs)', opacity: 0.8, marginLeft: 2 }}>
+                ({historyList.length})
+              </span>
+            )}
+          </button>
+
+          {showHistoryMenu && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 4px)',
+                left: 0,
+                zIndex: 1000,
+                width: 280,
+                maxHeight: 320,
+                overflowY: 'auto',
+                backgroundColor: 'var(--bg-card, #18181b)',
+                border: '1px solid var(--border-subtle, #27272a)',
+                borderRadius: 'var(--radius-md, 8px)',
+                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4)',
+                padding: '6px 0',
+                display: 'flex',
+                flexDirection: 'column'
+              }}
+            >
+              <div
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 'var(--font-xs)',
+                  fontWeight: 600,
+                  color: 'var(--text-muted)',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}
+              >
+                <span>Edit History</span>
+                {memoryUsageInfo && (
+                  <span className="mono" style={{ fontSize: 'calc(9.5px * var(--ui-font-scale, 1))', opacity: 0.85 }}>
+                    {(memoryUsageInfo.usedBytes / (1024 * 1024)).toFixed(1)}MB / {(memoryUsageInfo.maxBytes / (1024 * 1024)).toFixed(0)}MB
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '4px 0' }}>
+                {historyList.map((item, idx) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      if (!item.isCurrent && onJumpToHistoryIndex) {
+                        onJumpToHistoryIndex(idx);
+                        setShowHistoryMenu(false);
+                      }
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '6px 12px',
+                      background: item.isCurrent ? 'var(--accent-primary-subtle, rgba(2, 132, 199, 0.15))' : 'transparent',
+                      border: 'none',
+                      color: item.isCurrent ? 'var(--accent-cyan, #38bdf8)' : 'var(--text-main)',
+                      fontWeight: item.isCurrent ? 600 : 400,
+                      fontSize: 'var(--font-sm)',
+                      cursor: item.isCurrent ? 'default' : 'pointer',
+                      textAlign: 'left',
+                      width: '100%',
+                      transition: 'background 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!item.isCurrent) (e.currentTarget as HTMLElement).style.background = 'var(--bg-card-hover, rgba(255, 255, 255, 0.05))';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!item.isCurrent) (e.currentTarget as HTMLElement).style.background = 'transparent';
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+                      <span className="mono" style={{ fontSize: 'var(--font-xs)', opacity: 0.5, minWidth: 18 }}>
+                        #{idx + 1}
+                      </span>
+                      <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                        {item.description}
+                      </span>
+                    </div>
+                    {item.isCurrent && (
+                      <Check size={13} style={{ color: 'var(--accent-cyan, #38bdf8)', flexShrink: 0, marginLeft: 6 }} />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         <button
           className="btn btn-secondary btn-sm"

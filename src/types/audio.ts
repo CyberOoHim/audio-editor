@@ -71,6 +71,8 @@ export interface AudioHistoryEntry {
   timestamp: number;
   buffer: AudioBuffer;
   regionPatch?: AudioHistoryRegionPatch;
+  selectionBefore?: AudioSelection | null;
+  selectionAfter?: AudioSelection | null;
 }
 
 export type ExportFormat =

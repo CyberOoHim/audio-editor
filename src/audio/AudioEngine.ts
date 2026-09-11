@@ -158,11 +158,16 @@ export class AudioEngine {
     this.notifyTimeListeners(0);
   }
 
-  public setBufferDirectly(buffer: AudioBuffer, description: string): void {
+  public setBufferDirectly(
+    buffer: AudioBuffer,
+    description: string,
+    selectionBefore?: AudioSelection | null,
+    selectionAfter?: AudioSelection | null
+  ): void {
     this.stop();
     this.currentBuffer = buffer;
     this.stretchedCache = null;
-    this.history.push(description, buffer);
+    this.history.push(description, buffer, selectionBefore, selectionAfter);
     this.bufferEpoch++;
     this.notifyBufferListeners();
   }
@@ -171,11 +176,16 @@ export class AudioEngine {
    * Commit a length-preserving in-place edit. Same AudioBuffer object is kept
    * so a 30-minute track is not cloned. Returns whether undo was retained.
    */
-  public commitInPlaceEdit(description: string, patch: AudioHistoryRegionPatch): boolean {
+  public commitInPlaceEdit(
+    description: string,
+    patch: AudioHistoryRegionPatch,
+    selectionBefore?: AudioSelection | null,
+    selectionAfter?: AudioSelection | null
+  ): boolean {
     if (!this.currentBuffer) return false;
     this.stop();
     this.stretchedCache = null;
-    const keptUndo = this.history.pushInPlace(description, this.currentBuffer, patch);
+    const keptUndo = this.history.pushInPlace(description, this.currentBuffer, patch, selectionBefore, selectionAfter);
     this.bufferEpoch++;
     this.notifyBufferListeners();
     return keptUndo;
@@ -185,7 +195,7 @@ export class AudioEngine {
     return this.bufferEpoch;
   }
 
-  public undo(): { undoneDescription: string } | null {
+  public undo(): { undoneDescription: string; selection: AudioSelection | null; buffer: AudioBuffer } | null {
     const result = this.history.undo(this.currentBuffer);
     if (result) {
       this.stop();
@@ -193,12 +203,16 @@ export class AudioEngine {
       this.stretchedCache = null;
       this.bufferEpoch++;
       this.notifyBufferListeners();
-      return { undoneDescription: result.undoneDescription };
+      return {
+        undoneDescription: result.undoneDescription,
+        selection: result.restoredSelection,
+        buffer: result.buffer
+      };
     }
     return null;
   }
 
-  public redo(): { redoneDescription: string } | null {
+  public redo(): { redoneDescription: string; selection: AudioSelection | null; buffer: AudioBuffer } | null {
     const result = this.history.redo(this.currentBuffer);
     if (result) {
       this.stop();
@@ -206,9 +220,38 @@ export class AudioEngine {
       this.stretchedCache = null;
       this.bufferEpoch++;
       this.notifyBufferListeners();
-      return { redoneDescription: result.redoneDescription };
+      return {
+        redoneDescription: result.redoneDescription,
+        selection: result.restoredSelection,
+        buffer: result.buffer
+      };
     }
     return null;
+  }
+
+  public jumpToHistoryIndex(index: number): { description: string; selection: AudioSelection | null; buffer: AudioBuffer } | null {
+    const result = this.history.jumpToIndex(index, this.currentBuffer);
+    if (result) {
+      this.stop();
+      this.currentBuffer = result.buffer;
+      this.stretchedCache = null;
+      this.bufferEpoch++;
+      this.notifyBufferListeners();
+      return {
+        description: result.description,
+        selection: result.restoredSelection,
+        buffer: result.buffer
+      };
+    }
+    return null;
+  }
+
+  public getHistoryList() {
+    return this.history.getHistoryList();
+  }
+
+  public getMemoryUsageInfo() {
+    return this.history.getMemoryUsageInfo();
   }
 
   public getBuffer(): AudioBuffer | null {

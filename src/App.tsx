@@ -107,6 +107,8 @@ export function AudioStudioApp() {
   const [canRedo, setCanRedo] = useState<boolean>(false);
   const [undoDescription, setUndoDescription] = useState<string>('');
   const [redoDescription, setRedoDescription] = useState<string>('');
+  const [historyList, setHistoryList] = useState<{ id: string; description: string; timestamp: number; isCurrent: boolean }[]>([]);
+  const [memoryUsageInfo, setMemoryUsageInfo] = useState<{ usedBytes: number; maxBytes: number; entryCount: number }>({ usedBytes: 0, maxBytes: 60 * 1024 * 1024, entryCount: 0 });
 
   // User Settable Envelope & Tool Defaults
   const [fadeInDuration, setFadeInDuration] = useState<number>(1.5);
@@ -321,6 +323,8 @@ export function AudioStudioApp() {
       setCanRedo(audioEngine.history.canRedo());
       setUndoDescription(audioEngine.history.getUndoEntry()?.description || '');
       setRedoDescription(audioEngine.history.getRedoEntry()?.description || '');
+      setHistoryList(audioEngine.getHistoryList());
+      setMemoryUsageInfo(audioEngine.getMemoryUsageInfo());
 
       // Safely clamp or reset selection if the buffer duration changed from an undo/redo step
       if (buffer) {
@@ -407,6 +411,15 @@ export function AudioStudioApp() {
   const handleUndo = useCallback(() => {
     const res = audioEngine.undo();
     if (res) {
+      if (res.selection) {
+        const dur = res.buffer.duration;
+        setSelection({
+          start: Math.max(0, Math.min(dur, res.selection.start)),
+          end: Math.max(0, Math.min(dur, res.selection.end))
+        });
+      } else {
+        setSelection(null);
+      }
       showToast(`Undo: ${res.undoneDescription}`, 'info');
     }
   }, [showToast]);
@@ -414,7 +427,32 @@ export function AudioStudioApp() {
   const handleRedo = useCallback(() => {
     const res = audioEngine.redo();
     if (res) {
+      if (res.selection) {
+        const dur = res.buffer.duration;
+        setSelection({
+          start: Math.max(0, Math.min(dur, res.selection.start)),
+          end: Math.max(0, Math.min(dur, res.selection.end))
+        });
+      } else {
+        setSelection(null);
+      }
       showToast(`Redo: ${res.redoneDescription}`, 'info');
+    }
+  }, [showToast]);
+
+  const handleJumpToHistoryIndex = useCallback((index: number) => {
+    const res = audioEngine.jumpToHistoryIndex(index);
+    if (res) {
+      if (res.selection) {
+        const dur = res.buffer.duration;
+        setSelection({
+          start: Math.max(0, Math.min(dur, res.selection.start)),
+          end: Math.max(0, Math.min(dur, res.selection.end))
+        });
+      } else {
+        setSelection(null);
+      }
+      showToast(`Restored: ${res.description}`, 'info');
     }
   }, [showToast]);
 
@@ -437,14 +475,20 @@ export function AudioStudioApp() {
     }
   }, [showToast]);
 
-  const commitInPlace = useCallback((description: string, patch: AudioHistoryRegionPatch, successMessage: string) => {
-    const keptUndo = audioEngine.commitInPlaceEdit(description, patch);
+  const commitInPlace = useCallback((
+    description: string,
+    patch: AudioHistoryRegionPatch,
+    successMessage: string,
+    selectionBefore: AudioSelection | null = selection,
+    selectionAfter: AudioSelection | null = selection
+  ) => {
+    const keptUndo = audioEngine.commitInPlaceEdit(description, patch, selectionBefore, selectionAfter);
     if (keptUndo) {
       showToast(successMessage, 'success');
     } else {
       showToast(`${successMessage} Undo skipped to save memory on this device.`, 'info');
     }
-  }, [showToast]);
+  }, [selection, showToast]);
 
   // Zoom Controls
   const handleZoomIn = useCallback(() => {
@@ -482,7 +526,7 @@ export function AudioStudioApp() {
     void runEdit('Trimming…', async () => {
       const ctx = audioEngine.getContext();
       const newBuffer = await BufferUtils.sliceBufferAsync(ctx, buf, sel.start, sel.end);
-      audioEngine.setBufferDirectly(newBuffer, `Trim to ${sel.start.toFixed(2)}s - ${sel.end.toFixed(2)}s`);
+      audioEngine.setBufferDirectly(newBuffer, `Trim to ${sel.start.toFixed(2)}s - ${sel.end.toFixed(2)}s`, sel, null);
       setSelection(null);
       setScrollLeft(0);
       showToast('Trimmed to selection', 'success');
@@ -496,7 +540,7 @@ export function AudioStudioApp() {
     void runEdit('Cutting…', async () => {
       const ctx = audioEngine.getContext();
       const newBuffer = await BufferUtils.deleteRegionAsync(ctx, buf, sel.start, sel.end);
-      audioEngine.setBufferDirectly(newBuffer, `Cut ${sel.start.toFixed(2)}s - ${sel.end.toFixed(2)}s`);
+      audioEngine.setBufferDirectly(newBuffer, `Cut ${sel.start.toFixed(2)}s - ${sel.end.toFixed(2)}s`, sel, null);
       setSelection(null);
       showToast('Selection cut', 'success');
     });
@@ -645,12 +689,13 @@ export function AudioStudioApp() {
       if (sel && sel.end > sel.start) {
         const newBuffer = await BufferUtils.timeStretchBufferAsync(ctx, buf, cleanRate, keep, sel.start, sel.end);
         const newEnd = sel.start + (sel.end - sel.start) / cleanRate;
-        audioEngine.setBufferDirectly(newBuffer, `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'}) on selection`);
-        setSelection({ start: sel.start, end: newEnd });
+        const targetSel = { start: sel.start, end: newEnd };
+        audioEngine.setBufferDirectly(newBuffer, `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'}) on selection`, sel, targetSel);
+        setSelection(targetSel);
         showToast(`Applied ${cleanRate}x speed transform (${keep ? 'Keep pitch' : 'Shift pitch'}) to selection`, 'success');
       } else {
         const newBuffer = await BufferUtils.timeStretchBufferAsync(ctx, buf, cleanRate, keep);
-        audioEngine.setBufferDirectly(newBuffer, `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'})`);
+        audioEngine.setBufferDirectly(newBuffer, `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'})`, sel, sel);
         showToast(`Applied ${cleanRate}x speed transform (${keep ? 'Keep pitch' : 'Shift pitch'}) to track`, 'success');
       }
     });
@@ -696,7 +741,11 @@ export function AudioStudioApp() {
         label = `Inserted ${durationSec}s silence at ${atSec.toFixed(2)}s`;
       }
 
-      audioEngine.setBufferDirectly(newBuffer, label);
+      const targetSel = placement === 'replace-selection' && sel ? { start: sel.start, end: sel.start + durationSec } : sel;
+      audioEngine.setBufferDirectly(newBuffer, label, sel, targetSel);
+      if (placement === 'replace-selection' && sel) {
+        setSelection(targetSel);
+      }
       showToast(`Silence inserted (${durationSec}s)`, 'success');
     });
   }, [currentBuffer, selection, currentTime, runEdit, showToast]);
@@ -870,7 +919,12 @@ export function AudioStudioApp() {
       resultBuffer = await BufferUtils.insertBufferAtAsync(ctx, currentBuffer, genBuffer, atSec);
     }
 
-    audioEngine.setBufferDirectly(resultBuffer, `Inserted ${genName}`);
+    let afterSel = selection;
+    if (settings.placement === 'replace-selection' && selection && selection.end > selection.start) {
+      afterSel = { start: selection.start, end: selection.start + settings.durationSec };
+      setSelection(afterSel);
+    }
+    audioEngine.setBufferDirectly(resultBuffer, `Inserted ${genName}`, selection, afterSel);
     showToast(`Signal inserted (${genName})`, 'success');
     });
   }, [currentBuffer, selection, currentTime, activeFolderId, loadData, loadFileToEditor, showToast, runEdit]);
@@ -971,7 +1025,7 @@ export function AudioStudioApp() {
     if (comp.enabled) effectParts.push('Compressor');
     if (Math.abs(speed - 1.0) >= 0.005) effectParts.push(`${speed}x speed (${keepPitch ? 'Keep pitch' : 'Resample'})`);
     const label = effectParts.length > 0 ? `Effects (${effectParts.join(', ')})` : 'Applied DSP Effects';
-    audioEngine.setBufferDirectly(newBuffer, label);
+    audioEngine.setBufferDirectly(newBuffer, label, selection, selection);
     showToast('Effects applied', 'success');
     });
   }, [currentBuffer, runEdit, showToast]);
@@ -997,7 +1051,7 @@ export function AudioStudioApp() {
       const actionName = `Voice FX: ${presetName}${scopeDesc}`;
 
       const newBuffer = await VoiceChangerEngine.renderVoiceChanger(buf, settings, sel);
-      audioEngine.setBufferDirectly(newBuffer, actionName);
+      audioEngine.setBufferDirectly(newBuffer, actionName, sel, sel);
       showToast(`Applied ${actionName}`, 'success');
     });
   }, [currentBuffer, selection, runEdit, showToast]);
@@ -1576,6 +1630,9 @@ export function AudioStudioApp() {
             canRedo={canRedo}
             undoDescription={undoDescription}
             redoDescription={redoDescription}
+            historyList={historyList}
+            onJumpToHistoryIndex={handleJumpToHistoryIndex}
+            memoryUsageInfo={memoryUsageInfo}
             fadeInDuration={fadeInDuration}
             fadeOutDuration={fadeOutDuration}
             onUndo={handleUndo}
@@ -1719,6 +1776,12 @@ export function AudioStudioApp() {
         currentTime={currentTime}
         initialType={fadeModalInitialType}
         onApplyFade={handleApplyFade}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        undoDescription={undoDescription}
+        redoDescription={redoDescription}
       />
 
       <NormalizeModal
@@ -1726,6 +1789,12 @@ export function AudioStudioApp() {
         onClose={handleCloseNormalizeModal}
         selection={selection}
         onApplyNormalize={handleApplyNormalize}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        undoDescription={undoDescription}
+        redoDescription={redoDescription}
       />
 
       <GeneratorModal
@@ -1734,6 +1803,12 @@ export function AudioStudioApp() {
         selection={selection}
         currentTime={currentTime}
         onGenerateSignal={handleGenerateSignal}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        undoDescription={undoDescription}
+        redoDescription={redoDescription}
       />
 
       <SetRangeModal
@@ -1791,6 +1866,12 @@ export function AudioStudioApp() {
         onClose={handleCloseGainModal}
         hasSelection={Boolean(selection && selection.end > selection.start)}
         onApplyGain={handleApplyGain}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        undoDescription={undoDescription}
+        redoDescription={redoDescription}
       />
 
       <SilenceModal
@@ -1799,6 +1880,12 @@ export function AudioStudioApp() {
         selection={selection}
         currentTime={currentTime}
         onInsertSilence={handleInsertSilence}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        undoDescription={undoDescription}
+        redoDescription={redoDescription}
       />
 
       <PwaInstallModal

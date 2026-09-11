@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Radio, Activity, Sparkles } from 'lucide-react';
+import { Radio, Activity, Sparkles, Undo2, Redo2 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { Slider } from '../common/Slider';
 import type { AudioSelection, SignalType, SignalGeneratorSettings } from '../../types/audio';
@@ -10,6 +10,12 @@ export interface GeneratorModalProps {
   selection: AudioSelection | null;
   currentTime: number;
   onGenerateSignal: (settings: SignalGeneratorSettings) => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  undoDescription?: string;
+  redoDescription?: string;
 }
 
 export const GeneratorModal: React.FC<GeneratorModalProps> = ({
@@ -17,7 +23,13 @@ export const GeneratorModal: React.FC<GeneratorModalProps> = ({
   onClose,
   selection,
   currentTime,
-  onGenerateSignal
+  onGenerateSignal,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
+  undoDescription = '',
+  redoDescription = ''
 }) => {
   const hasSelection = Boolean(selection && selection.end > selection.start);
   const selectionDuration = hasSelection ? selection!.end - selection!.start : 0;
@@ -30,6 +42,30 @@ export const GeneratorModal: React.FC<GeneratorModalProps> = ({
   const [placement, setPlacement] = useState<SignalGeneratorSettings['placement']>(
     hasSelection ? 'replace-selection' : 'playhead'
   );
+
+  // Hotkey support for Undo/Redo inside modal
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+      if (cmdOrCtrl && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey) {
+          if (canRedo && onRedo) onRedo();
+        } else {
+          if (canUndo && onUndo) onUndo();
+        }
+      } else if (cmdOrCtrl && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (canRedo && onRedo) onRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, canUndo, canRedo, onUndo, onRedo]);
 
   useEffect(() => {
     if (isOpen) {
@@ -72,14 +108,42 @@ export const GeneratorModal: React.FC<GeneratorModalProps> = ({
       title="Signal & Tone Generator"
       maxWidth="500px"
       footer={
-        <>
-          <button className="btn btn-secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn btn-primary" onClick={handleApply}>
-            <Radio size={15} /> Generate {isNoise ? (type === 'pink-noise' ? 'Pink Noise' : 'White Noise') : `${frequency}Hz ${type.charAt(0).toUpperCase() + type.slice(1)}`} ({duration}s)
-          </button>
-        </>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {onUndo && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={onUndo}
+                disabled={!canUndo}
+                title={undoDescription ? `Undo: ${undoDescription} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}
+                style={{ height: 32, padding: '0 10px' }}
+              >
+                <Undo2 size={13} /> Undo
+              </button>
+            )}
+            {onRedo && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={onRedo}
+                disabled={!canRedo}
+                title={redoDescription ? `Redo: ${redoDescription} (Ctrl+Y)` : 'Redo (Ctrl+Y)'}
+                style={{ height: 32, padding: '0 10px' }}
+              >
+                <Redo2 size={13} /> Redo
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button className="btn btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={handleApply}>
+              <Radio size={15} /> Generate {isNoise ? (type === 'pink-noise' ? 'Pink Noise' : 'White Noise') : `${frequency}Hz ${type.charAt(0).toUpperCase() + type.slice(1)}`} ({duration}s)
+            </button>
+          </div>
+        </div>
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

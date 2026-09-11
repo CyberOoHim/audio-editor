@@ -1,4 +1,4 @@
-import type { AudioHistoryEntry, AudioHistoryRegionPatch } from '../types/audio';
+import type { AudioHistoryEntry, AudioHistoryRegionPatch, AudioSelection } from '../types/audio';
 import { swapRegion } from './BufferUtils';
 import { estimateBufferBytes, getMemoryProfile } from './memoryBudget';
 
@@ -67,7 +67,12 @@ export class HistoryManager {
     }
   }
 
-  public push(description: string, buffer: AudioBuffer): void {
+  public push(
+    description: string,
+    buffer: AudioBuffer,
+    selectionBefore?: AudioSelection | null,
+    selectionAfter?: AudioSelection | null
+  ): void {
     if (this.currentIndex < this.history.length - 1) {
       this.history = this.history.slice(0, this.currentIndex + 1);
     }
@@ -76,7 +81,9 @@ export class HistoryManager {
       id: 'hist_' + Math.random().toString(36).substring(2, 9),
       description,
       timestamp: Date.now(),
-      buffer
+      buffer,
+      selectionBefore: selectionBefore ? { ...selectionBefore } : null,
+      selectionAfter: selectionAfter ? { ...selectionAfter } : null
     };
 
     this.history.push(entry);
@@ -92,23 +99,40 @@ export class HistoryManager {
   public pushInPlace(
     description: string,
     buffer: AudioBuffer,
-    patch: AudioHistoryRegionPatch
+    patch: AudioHistoryRegionPatch,
+    selectionBefore?: AudioSelection | null,
+    selectionAfter?: AudioSelection | null
   ): boolean {
     const patchBytes = patch.channels.reduce((sum, ch) => sum + ch.byteLength, 0);
     const profile = getMemoryProfile();
-    const patchBudget = profile.isConstrained ? Math.min(32 * 1024 * 1024, profile.maxScratchBytes) : profile.maxScratchBytes;
+    const patchBudget = profile.maxScratchBytes;
 
     if (this.currentIndex < this.history.length - 1) {
       this.history = this.history.slice(0, this.currentIndex + 1);
     }
 
-    if (patchBytes > patchBudget) {
-      // Full-track in-place on a long file: keep the mutated buffer, drop undo copies
+    // If adding this patch would exceed memory limits, prune oldest history entries first
+    while (
+      this.history.length > 1 &&
+      (this.calculateTotalMemory() + patchBytes > this.maxMemoryBytes)
+    ) {
+      if (this.currentIndex > 0) {
+        this.history.shift();
+        this.currentIndex--;
+      } else {
+        break;
+      }
+    }
+
+    if (patchBytes > patchBudget || (this.calculateTotalMemory() + patchBytes > this.maxMemoryBytes && this.history.length <= 1)) {
+      // Memory critically exhausted: keep current buffer baseline, reset undo
       this.history = [{
         id: 'hist_' + Math.random().toString(36).substring(2, 9),
         description,
         timestamp: Date.now(),
-        buffer
+        buffer,
+        selectionBefore: selectionBefore ? { ...selectionBefore } : null,
+        selectionAfter: selectionAfter ? { ...selectionAfter } : null
       }];
       this.currentIndex = 0;
       return false;
@@ -119,7 +143,9 @@ export class HistoryManager {
       description,
       timestamp: Date.now(),
       buffer,
-      regionPatch: patch
+      regionPatch: patch,
+      selectionBefore: selectionBefore ? { ...selectionBefore } : null,
+      selectionAfter: selectionAfter ? { ...selectionAfter } : null
     });
     this.currentIndex++;
     this.enforceMemoryLimit();
@@ -148,16 +174,23 @@ export class HistoryManager {
     return null;
   }
 
-  public undo(liveBuffer?: AudioBuffer | null): { entry: AudioHistoryEntry; buffer: AudioBuffer; undoneDescription: string } | null {
+  public undo(liveBuffer?: AudioBuffer | null): {
+    entry: AudioHistoryEntry;
+    buffer: AudioBuffer;
+    undoneDescription: string;
+    restoredSelection: AudioSelection | null;
+  } | null {
     if (!this.canUndo()) return null;
     const undoneEntry = this.history[this.currentIndex];
+    const restoredSelection = undoneEntry.selectionBefore ?? null;
     if (undoneEntry.regionPatch && liveBuffer) {
       swapRegion(liveBuffer, undoneEntry.regionPatch);
       this.currentIndex--;
       return {
         entry: this.history[this.currentIndex],
         buffer: liveBuffer,
-        undoneDescription: undoneEntry.description
+        undoneDescription: undoneEntry.description,
+        restoredSelection
       };
     }
     this.currentIndex--;
@@ -165,26 +198,77 @@ export class HistoryManager {
     return {
       entry,
       buffer: entry.buffer,
-      undoneDescription: undoneEntry.description
+      undoneDescription: undoneEntry.description,
+      restoredSelection
     };
   }
 
-  public redo(liveBuffer?: AudioBuffer | null): { entry: AudioHistoryEntry; buffer: AudioBuffer; redoneDescription: string } | null {
+  public redo(liveBuffer?: AudioBuffer | null): {
+    entry: AudioHistoryEntry;
+    buffer: AudioBuffer;
+    redoneDescription: string;
+    restoredSelection: AudioSelection | null;
+  } | null {
     if (!this.canRedo()) return null;
     this.currentIndex++;
     const entry = this.history[this.currentIndex];
+    const restoredSelection = entry.selectionAfter ?? null;
     if (entry.regionPatch && liveBuffer) {
       swapRegion(liveBuffer, entry.regionPatch);
       return {
         entry,
         buffer: liveBuffer,
-        redoneDescription: entry.description
+        redoneDescription: entry.description,
+        restoredSelection
       };
     }
     return {
       entry,
       buffer: entry.buffer,
-      redoneDescription: entry.description
+      redoneDescription: entry.description,
+      restoredSelection
+    };
+  }
+
+  public jumpToIndex(targetIndex: number, liveBuffer?: AudioBuffer | null): {
+    entry: AudioHistoryEntry;
+    buffer: AudioBuffer;
+    description: string;
+    restoredSelection: AudioSelection | null;
+  } | null {
+    if (targetIndex < 0 || targetIndex >= this.history.length || targetIndex === this.currentIndex) {
+      return null;
+    }
+
+    let lastResult: {
+      entry: AudioHistoryEntry;
+      buffer: AudioBuffer;
+      undoneDescription?: string;
+      redoneDescription?: string;
+      restoredSelection: AudioSelection | null;
+    } | null = null;
+
+    if (targetIndex < this.currentIndex) {
+      while (this.currentIndex > targetIndex) {
+        const res = this.undo(liveBuffer);
+        if (!res) break;
+        lastResult = res;
+      }
+    } else {
+      while (this.currentIndex < targetIndex) {
+        const res = this.redo(liveBuffer);
+        if (!res) break;
+        lastResult = res;
+      }
+    }
+
+    if (!lastResult) return null;
+    const currentEntry = this.history[this.currentIndex];
+    return {
+      entry: currentEntry,
+      buffer: lastResult.buffer,
+      description: currentEntry.description,
+      restoredSelection: lastResult.restoredSelection
     };
   }
 
@@ -204,6 +288,14 @@ export class HistoryManager {
     }));
   }
 
+  public getMemoryUsageInfo(): { usedBytes: number; maxBytes: number; entryCount: number } {
+    return {
+      usedBytes: this.calculateTotalMemory(),
+      maxBytes: this.maxMemoryBytes,
+      entryCount: this.history.length
+    };
+  }
+
   public reset(initialBuffer?: AudioBuffer, initialDescription: string = 'Initial Audio'): void {
     this.history = [];
     this.currentIndex = -1;
@@ -212,3 +304,4 @@ export class HistoryManager {
     }
   }
 }
+

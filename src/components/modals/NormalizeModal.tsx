@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { BarChart2, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { BarChart2, CheckCircle2, Undo2, Redo2 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { Slider } from '../common/Slider';
 import type { AudioSelection } from '../../types/audio';
@@ -9,17 +9,53 @@ export interface NormalizeModalProps {
   onClose: () => void;
   selection: AudioSelection | null;
   onApplyNormalize: (targetDb: number, scope: 'all' | 'selection') => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  undoDescription?: string;
+  redoDescription?: string;
 }
 
 export const NormalizeModal: React.FC<NormalizeModalProps> = ({
   isOpen,
   onClose,
   selection,
-  onApplyNormalize
+  onApplyNormalize,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
+  undoDescription = '',
+  redoDescription = ''
 }) => {
   const hasSelection = Boolean(selection && selection.end > selection.start);
   const [targetDb, setTargetDb] = useState<number>(-0.1);
   const [scope, setScope] = useState<'all' | 'selection'>(hasSelection ? 'selection' : 'all');
+
+  // Hotkey support for Undo/Redo inside modal
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+      if (cmdOrCtrl && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey) {
+          if (canRedo && onRedo) onRedo();
+        } else {
+          if (canUndo && onUndo) onUndo();
+        }
+      } else if (cmdOrCtrl && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (canRedo && onRedo) onRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, canUndo, canRedo, onUndo, onRedo]);
 
   const presets = [
     { label: '0.0 dBFS', val: 0.0, desc: 'Full Scale Maximum' },
@@ -40,16 +76,44 @@ export const NormalizeModal: React.FC<NormalizeModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title="Normalize Peak Level"
-      maxWidth="460px"
+      maxWidth="480px"
       footer={
-        <>
-          <button className="btn btn-secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn btn-primary" onClick={handleApply}>
-            <BarChart2 size={15} /> Normalize ({targetDb > 0 ? `+${targetDb}` : targetDb} dBFS)
-          </button>
-        </>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {onUndo && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={onUndo}
+                disabled={!canUndo}
+                title={undoDescription ? `Undo: ${undoDescription} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}
+                style={{ height: 32, padding: '0 10px' }}
+              >
+                <Undo2 size={13} /> Undo
+              </button>
+            )}
+            {onRedo && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={onRedo}
+                disabled={!canRedo}
+                title={redoDescription ? `Redo: ${redoDescription} (Ctrl+Y)` : 'Redo (Ctrl+Y)'}
+                style={{ height: 32, padding: '0 10px' }}
+              >
+                <Redo2 size={13} /> Redo
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button className="btn btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={handleApply}>
+              <BarChart2 size={15} /> Normalize ({targetDb > 0 ? `+${targetDb}` : targetDb} dBFS)
+            </button>
+          </div>
+        </div>
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
