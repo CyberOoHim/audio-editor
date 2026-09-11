@@ -1,6 +1,6 @@
 {
   "name": "AudioCraft Studio",
-  "description": "Studio-grade Web Audio Editor, Voice Changer, Recorder, and File Manager running client-side with IndexedDB storage, Lo-Fi & spatial acoustic environments, waveform scrubbing, and multi-format conversion.",
+  "description": "Studio-grade Web Audio Editor, on-device GPU Vocal & Stem Separation, Voice Changer, Recorder, and File Manager running client-side with IndexedDB storage, Lo-Fi & spatial acoustic environments, waveform scrubbing, and multi-format conversion.",
   "requestFramePermissions": [
     "microphone"
   ],

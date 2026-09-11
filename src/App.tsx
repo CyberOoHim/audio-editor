@@ -69,6 +69,7 @@ import { SelectionInfo } from './components/editor/SelectionInfo';
 import { RecordModal } from './components/recorder/RecordModal';
 import { EffectsModal } from './components/modals/EffectsModal';
 import { VoiceChangerModal } from './components/modals/VoiceChangerModal';
+import { VocalSeparationModal } from './components/modals/VocalSeparationModal';
 import { VoiceChangerEngine } from './audio/VoiceChangerEngine';
 import { VOICE_PRESETS } from './audio/voicePresets';
 import { ExportModal } from './components/modals/ExportModal';
@@ -177,6 +178,7 @@ export function AudioStudioApp() {
   const [recordModalOpen, setRecordModalOpen] = useState<boolean>(false);
   const [effectsModalOpen, setEffectsModalOpen] = useState<boolean>(false);
   const [voiceChangerModalOpen, setVoiceChangerModalOpen] = useState<boolean>(false);
+  const [vocalSeparationModalOpen, setVocalSeparationModalOpen] = useState<boolean>(false);
   const [exportModalOpen, setExportModalOpen] = useState<boolean>(false);
   const [gainModalOpen, setGainModalOpen] = useState<boolean>(false);
   const [silenceModalOpen, setSilenceModalOpen] = useState<boolean>(false);
@@ -1076,6 +1078,64 @@ export function AudioStudioApp() {
     setVoiceChangerModalOpen(false);
   }, []);
 
+  const handleOpenVocalSeparationModal = useCallback(() => {
+    setVocalSeparationModalOpen(true);
+  }, []);
+
+  const handleCloseVocalSeparationModal = useCallback(() => {
+    setVocalSeparationModalOpen(false);
+  }, []);
+
+  const handleApplyVocalSeparation = useCallback((resultBuffer: AudioBuffer, actionDescription: string) => {
+    audioEngine.setBufferDirectly(resultBuffer, actionDescription, selection, selection);
+    showToast(actionDescription, 'success');
+  }, [selection, showToast]);
+
+  const handleSaveStemsToLibrary = useCallback(async (
+    vocalBuffer: AudioBuffer,
+    instrumentalBuffer: AudioBuffer,
+    vocalBlob: Blob,
+    instrumentalBlob: Blob,
+    baseName: string
+  ) => {
+    try {
+      const vocalItem = await saveAudioFile({
+        folderId: activeFolderId,
+        name: `${baseName}_Vocals.wav`,
+        format: 'wav',
+        duration: vocalBuffer.duration,
+        sampleRate: vocalBuffer.sampleRate,
+        numberOfChannels: vocalBuffer.numberOfChannels,
+        waveformPeaks: generateWaveformPeaks(vocalBuffer, 64),
+        size: vocalBlob.size,
+        blob: vocalBlob,
+        tags: ['vocal', 'stem', 'on-device-ai'],
+        favorite: false
+      });
+
+      const instrumentalItem = await saveAudioFile({
+        folderId: activeFolderId,
+        name: `${baseName}_Instrumental.wav`,
+        format: 'wav',
+        duration: instrumentalBuffer.duration,
+        sampleRate: instrumentalBuffer.sampleRate,
+        numberOfChannels: instrumentalBuffer.numberOfChannels,
+        waveformPeaks: generateWaveformPeaks(instrumentalBuffer, 64),
+        size: instrumentalBlob.size,
+        blob: instrumentalBlob,
+        tags: ['instrumental', 'karaoke', 'stem', 'on-device-ai'],
+        favorite: false
+      });
+
+      setFiles((prev) => [vocalItem, instrumentalItem, ...prev]);
+      await refreshStorage();
+      showToast('Saved Vocal & Instrumental stems to Library', 'success');
+    } catch (err) {
+      console.error('Failed to save stems to library:', err);
+      showToast('Could not save stems to library', 'error');
+    }
+  }, [activeFolderId, refreshStorage, showToast]);
+
   const handleApplyVoiceChanger = useCallback(async (settings: VoiceChangerSettings) => {
     if (!currentBuffer) return;
     const buf = currentBuffer;
@@ -1689,6 +1749,7 @@ export function AudioStudioApp() {
             onSplit={handleSplit}
             onOpenEffects={handleOpenEffectsModal}
             onOpenVoiceChanger={handleOpenVoiceChangerModal}
+            onOpenVocalSeparation={handleOpenVocalSeparationModal}
             onOpenGenerator={handleOpenGeneratorModal}
             onClearWorkspace={handleClearWorkspace}
           />
@@ -1882,6 +1943,23 @@ export function AudioStudioApp() {
         currentBuffer={currentBuffer}
         selection={selection}
         onApply={handleApplyVoiceChanger}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        undoActionName={undoDescription}
+        redoActionName={redoDescription}
+      />
+
+      <VocalSeparationModal
+        isOpen={vocalSeparationModalOpen}
+        onClose={handleCloseVocalSeparationModal}
+        currentBuffer={currentBuffer}
+        currentFileName={currentFileName}
+        selection={selection}
+        currentTime={currentTime}
+        onApplyStem={handleApplyVocalSeparation}
+        onSaveStemsToLibrary={handleSaveStemsToLibrary}
         canUndo={canUndo}
         canRedo={canRedo}
         onUndo={handleUndo}

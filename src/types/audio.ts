@@ -168,3 +168,24 @@ export interface VoiceChangerSettings {
   mix: number;            // 0 to 1 (dry / wet)
   scope: 'all' | 'selection';
 }
+
+export type StemOutputMode = 'vocals-only' | 'music-only' | 'custom-balance' | 'both-stems';
+
+export type VocalRangePreset = 'all' | 'female-high' | 'male-low' | 'speech-lead';
+
+export interface VocalSeparationSettings {
+  mode: StemOutputMode;
+  vocalBalance: number;       // 0 (100% music) to 1.0 (100% vocals), 0.5 is balanced
+  vocalSensitivity: number;   // 0.5 to 2.0 (default 1.0)
+  stereoCenterWeight: number; // 0.0 to 1.0 (default 0.85, center vocal bias)
+  debleedStrength: number;    // 0.0 to 1.0 (spectral gate to remove residual instruments)
+  vocalRange: VocalRangePreset;
+  preserveStereoAmbience: boolean;
+  scope: 'all' | 'selection';
+}
+
+export interface VocalSeparationResult {
+  vocalBuffer: AudioBuffer;
+  instrumentalBuffer: AudioBuffer;
+  outputBuffer: AudioBuffer;
+}

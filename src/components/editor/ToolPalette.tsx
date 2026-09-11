@@ -19,7 +19,8 @@ import {
   Radio,
   SlidersHorizontal,
   FileX,
-  Sparkles
+  Sparkles,
+  Mic
 } from 'lucide-react';
 import type { FadeType } from '../../types/audio';
 
@@ -51,6 +52,7 @@ export interface ToolPaletteProps {
   onSplit: () => void;
   onOpenEffects: () => void;
   onOpenVoiceChanger: () => void;
+  onOpenVocalSeparation?: () => void;
   onOpenGenerator: () => void;
   onClearWorkspace?: () => void;
 }
@@ -83,6 +85,7 @@ export const ToolPalette: React.FC<ToolPaletteProps> = React.memo(({
   onSplit,
   onOpenEffects,
   onOpenVoiceChanger,
+  onOpenVocalSeparation,
   onOpenGenerator,
   onClearWorkspace
 }) => {
@@ -395,6 +398,21 @@ export const ToolPalette: React.FC<ToolPaletteProps> = React.memo(({
           }}
         >
           <Sparkles size={14} /> Voice Changer
+        </button>
+
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={onOpenVocalSeparation}
+          disabled={!hasBuffer}
+          title="On-Device Vocal & Stem Separation (Vocals Only or Background Music Only via iPad GPU)"
+          style={{
+            background: 'linear-gradient(135deg, rgba(13, 148, 136, 0.25), rgba(2, 132, 199, 0.25))',
+            borderColor: 'rgba(20, 184, 166, 0.45)',
+            color: '#2dd4bf'
+          }}
+        >
+          <Mic size={14} /> Vocal Separation
         </button>
       </div>
 
