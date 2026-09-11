@@ -22,6 +22,7 @@ export class AudioEngine {
   private keepPitch: boolean = true;
   private volume: number = 1.0;
   private stretchedCache: { source: AudioBuffer; rate: number; buffer: AudioBuffer } | null = null;
+  private rateDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private isLooping: boolean = false;
   private loopSelection: AudioSelection | null = null;
   
@@ -300,25 +301,28 @@ export class AudioEngine {
       return { buffer: this.stretchedCache.buffer, effectiveRate: 1.0, isStretched: true };
     }
 
-    // Live WSOLA of a long file allocates a second full PCM copy and can run for
-    // minutes on the main thread — both crash iPad Safari. Keep-pitch apply is
-    // an explicit edit; preview uses native playbackRate instead.
+    const ctx = this.getContext();
     const profile = getMemoryProfile();
     const liveBytes = estimateBufferBytes(this.currentBuffer);
-    const previewBudget = profile.isConstrained ? 8 * 1024 * 1024 : 24 * 1024 * 1024;
-    if (liveBytes > previewBudget) {
-      this.stretchedCache = null;
-      return { buffer: this.currentBuffer, effectiveRate: this.playbackRate, isStretched: false };
+    const maxBudget = profile.maxScratchBytes;
+
+    // For buffers within device memory budget, stretch the full buffer and cache
+    if (liveBytes <= maxBudget) {
+      const stretched = timeStretchBuffer(ctx, this.currentBuffer, this.playbackRate, true);
+      this.stretchedCache = {
+        source: this.currentBuffer,
+        rate: this.playbackRate,
+        buffer: stretched,
+      };
+      return { buffer: stretched, effectiveRate: 1.0, isStretched: true };
     }
 
-    const ctx = this.getContext();
-    const stretched = timeStretchBuffer(ctx, this.currentBuffer, this.playbackRate, true);
-    this.stretchedCache = {
-      source: this.currentBuffer,
-      rate: this.playbackRate,
-      buffer: stretched,
-    };
-    return { buffer: stretched, effectiveRate: 1.0, isStretched: true };
+    // For extraordinarily long files exceeding scratch memory budget, stretch a 180-second window
+    const windowSec = 180;
+    const startSec = Math.max(0, Math.min(this.currentBuffer.duration - 1, this.startOffset));
+    const endSec = Math.min(this.currentBuffer.duration, startSec + windowSec);
+    const stretchedWindow = timeStretchBuffer(ctx, this.currentBuffer, this.playbackRate, true, startSec, endSec);
+    return { buffer: stretchedWindow, effectiveRate: 1.0, isStretched: true };
   }
 
   public play(fromTime?: number, selection?: AudioSelection): void {
@@ -410,6 +414,10 @@ export class AudioEngine {
   }
 
   public pause(): void {
+    if (this.rateDebounceTimer !== null) {
+      clearTimeout(this.rateDebounceTimer);
+      this.rateDebounceTimer = null;
+    }
     if (this.playState !== 'playing') return;
     this.playToken++;
     this.startOffset = this.getCurrentTime();
@@ -421,6 +429,10 @@ export class AudioEngine {
   }
 
   public stop(): void {
+    if (this.rateDebounceTimer !== null) {
+      clearTimeout(this.rateDebounceTimer);
+      this.rateDebounceTimer = null;
+    }
     this.playToken++;
     this.stopSource();
     this.startOffset = 0;
@@ -454,11 +466,22 @@ export class AudioEngine {
     const clamped = Math.max(0.25, Math.min(4.0, rate));
     if (Math.abs(this.playbackRate - clamped) < 0.001) return;
 
+    if (this.rateDebounceTimer !== null) {
+      clearTimeout(this.rateDebounceTimer);
+      this.rateDebounceTimer = null;
+    }
+
     if (this.playState === 'playing' && this.ctx) {
       const curTime = this.getCurrentTime();
       this.playbackRate = clamped;
       if (this.keepPitch) {
-        this.play(curTime, this.loopSelection || undefined);
+        this.rateDebounceTimer = setTimeout(() => {
+          this.rateDebounceTimer = null;
+          if (this.playState === 'playing') {
+            const time = this.getCurrentTime();
+            this.play(time, this.loopSelection || undefined);
+          }
+        }, 40);
       } else {
         this.startOffset = curTime;
         this.startTime = this.ctx.currentTime;
@@ -474,6 +497,13 @@ export class AudioEngine {
   public setKeepPitch(keep: boolean): void {
     if (this.keepPitch === keep) return;
     this.keepPitch = keep;
+    if (!keep) {
+      this.stretchedCache = null;
+    }
+    if (this.rateDebounceTimer !== null) {
+      clearTimeout(this.rateDebounceTimer);
+      this.rateDebounceTimer = null;
+    }
     if (this.playState === 'playing') {
       const curTime = this.getCurrentTime();
       this.play(curTime, this.loopSelection || undefined);

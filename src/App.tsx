@@ -698,6 +698,8 @@ export function AudioStudioApp() {
         audioEngine.setBufferDirectly(newBuffer, `Applied ${cleanRate}x speed (${keep ? 'preserve pitch' : 'resample'})`, sel, sel);
         showToast(`Applied ${cleanRate}x speed transform (${keep ? 'Keep pitch' : 'Shift pitch'}) to track`, 'success');
       }
+      setPlaybackRate(1.0);
+      audioEngine.setPlaybackRate(1.0);
     });
   }, [currentBuffer, selection, runEdit, showToast]);
 

@@ -964,13 +964,19 @@ export function timeStretchBuffer(
   }
 
   const ch0 = source.getChannelData(0);
+  const srcChannels: Float32Array[] = [];
+  const dstChannels: Float32Array[] = [];
+  for (let c = 0; c < numChannels; c++) {
+    srcChannels.push(source.getChannelData(c));
+    dstChannels.push(target.getChannelData(c));
+  }
 
   // First frame copy
   let prevCandidate = 0;
+  const initialLen = Math.min(N, inLen, outLen);
   for (let c = 0; c < numChannels; c++) {
-    const src = source.getChannelData(c);
-    const dst = target.getChannelData(c);
-    const initialLen = Math.min(N, inLen, outLen);
+    const src = srcChannels[c];
+    const dst = dstChannels[c];
     for (let i = 0; i < initialLen; i++) {
       dst[i] = src[i] * win[i];
     }
@@ -989,9 +995,9 @@ export function timeStretchBuffer(
     let maxCorr = -Infinity;
 
     if (natCont + Hs <= inLen && minSearch <= maxSearch) {
-      for (let cand = minSearch; cand <= maxSearch; cand += 2) {
+      for (let cand = minSearch; cand <= maxSearch; cand += 4) {
         let corr = 0;
-        for (let k = 0; k < Hs; k += 4) {
+        for (let k = 0; k < Hs; k += 8) {
           corr += ch0[cand + k] * ch0[natCont + k];
         }
         if (corr > maxCorr) {
@@ -1002,8 +1008,8 @@ export function timeStretchBuffer(
     }
 
     for (let c = 0; c < numChannels; c++) {
-      const src = source.getChannelData(c);
-      const dst = target.getChannelData(c);
+      const src = srcChannels[c];
+      const dst = dstChannels[c];
       for (let i = 0; i < N; i++) {
         dst[synPos + i] += src[bestCand + i] * win[i];
       }
@@ -1080,12 +1086,18 @@ export async function timeStretchBufferAsync(
   }
 
   const ch0 = source.getChannelData(0);
+  const srcChannels: Float32Array[] = [];
+  const dstChannels: Float32Array[] = [];
+  for (let c = 0; c < numChannels; c++) {
+    srcChannels.push(source.getChannelData(c));
+    dstChannels.push(target.getChannelData(c));
+  }
 
   let prevCandidate = 0;
+  const initialLen = Math.min(N, inLen, outLen);
   for (let c = 0; c < numChannels; c++) {
-    const src = source.getChannelData(c);
-    const dst = target.getChannelData(c);
-    const initialLen = Math.min(N, inLen, outLen);
+    const src = srcChannels[c];
+    const dst = dstChannels[c];
     for (let i = 0; i < initialLen; i++) {
       dst[i] = src[i] * win[i];
     }
@@ -1105,9 +1117,9 @@ export async function timeStretchBufferAsync(
     let maxCorr = -Infinity;
 
     if (natCont + Hs <= inLen && minSearch <= maxSearch) {
-      for (let cand = minSearch; cand <= maxSearch; cand += 2) {
+      for (let cand = minSearch; cand <= maxSearch; cand += 4) {
         let corr = 0;
-        for (let k = 0; k < Hs; k += 4) {
+        for (let k = 0; k < Hs; k += 8) {
           corr += ch0[cand + k] * ch0[natCont + k];
         }
         if (corr > maxCorr) {
@@ -1118,8 +1130,8 @@ export async function timeStretchBufferAsync(
     }
 
     for (let c = 0; c < numChannels; c++) {
-      const src = source.getChannelData(c);
-      const dst = target.getChannelData(c);
+      const src = srcChannels[c];
+      const dst = dstChannels[c];
       for (let i = 0; i < N; i++) {
         dst[synPos + i] += src[bestCand + i] * win[i];
       }
